@@ -1,0 +1,48 @@
+using JustEat.HttpClientInterception;
+using Microsoft.Extensions.Http;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Wires a per-test interceptor handler into every HttpClient pipeline. The handler reads
+/// the current options from <see cref="IHttpClientInterceptorOptionsAccessor"/> on each
+/// request, so each parallel test contributes its own registrations.
+/// </summary>
+public sealed class HttpClientInterceptionFilter : IHttpMessageHandlerBuilderFilter
+{
+    private readonly IHttpClientInterceptorOptionsAccessor _accessor;
+
+    public HttpClientInterceptionFilter(IHttpClientInterceptorOptionsAccessor accessor)
+    {
+        _accessor = accessor;
+    }
+
+    public Action<HttpMessageHandlerBuilder> Configure(Action<HttpMessageHandlerBuilder> next) =>
+        builder =>
+        {
+            next(builder);
+            builder.AdditionalHandlers.Add(new AccessorBackedInterceptor(_accessor));
+        };
+
+    private sealed class AccessorBackedInterceptor : DelegatingHandler
+    {
+        private readonly IHttpClientInterceptorOptionsAccessor _accessor;
+
+        public AccessorBackedInterceptor(IHttpClientInterceptorOptionsAccessor accessor)
+        {
+            _accessor = accessor;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var options = _accessor.Current;
+            if (options is not null)
+            {
+                var response = await options.GetResponseAsync(request, cancellationToken);
+                if (response is not null) return response;
+            }
+            return await base.SendAsync(request, cancellationToken);
+        }
+    }
+}

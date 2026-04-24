@@ -1,0 +1,49 @@
+using System.Net;
+using Alba;
+using AwesomeAssertions;
+using {{ServiceRootNamespace}};
+using {{TestsNamespace}}.Infrastructure;
+using {{TestsNamespace}}.Infrastructure.Extensions;
+using Xunit;
+
+namespace {{TestsNamespace}}.Scenarios.{{Area}};
+
+public class When{{Scenario}} : IClassFixture<ApiFixture>, IAsyncLifetime, IDisposable
+{
+    private readonly TestScope _testScope;
+    private IScenarioResult _result = null!;
+
+    public When{{Scenario}}(ITestOutputHelper outputHelper, ApiFixture fixture)
+    {
+        _testScope = fixture.CreateTestScope(outputHelper);
+    }
+
+    public async ValueTask InitializeAsync()
+    {
+        // Arrange — seed any starting state, scoped by the test's correlation ID:
+        // _testScope.Fake{{Thing}}Repository.Add{{Thing}}(_testScope.CorrelationId.ToString("D"), new {{Thing}}(/* ... */));
+
+        // Act — drive the API via Alba's fluent DSL.
+        _result = await _testScope.Scenario(scenario =>
+        {
+            scenario.Post.Json(new {{Thing}}(/* fields */)).ToUrl("/{{Path}}");
+            scenario.StatusCodeShouldBe(HttpStatusCode.Created);
+        });
+    }
+
+    [Fact]
+    public void Returns{{ExpectedStatus}}()
+    {
+        _result.Context.Response.StatusCode.Should().Be((int)HttpStatusCode.{{ExpectedStatus}});
+    }
+
+    [Fact]
+    public void PersistsThe{{Thing}}()
+    {
+        var stored = _testScope.Fake{{Thing}}Repository.Get{{Thing}}s(_testScope.CorrelationId.ToString("D"));
+        stored.Should().ContainSingle();
+    }
+
+    public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+    public void Dispose() => _testScope.Dispose();
+}

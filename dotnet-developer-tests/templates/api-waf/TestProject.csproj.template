@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>{{TargetFramework}}</TargetFramework><!-- e.g., net10.0 -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test framework -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Web host testing — version MUST match the target framework's ASP.NET version -->
+    <!-- net10.0 → 10.0.x, net9.0 → 9.0.x, net8.0 → 8.0.x -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="{{AspNetCoreTestingVersion}}" />
+
+    <!-- Logging -->
+    <PackageReference Include="MartinCostello.Logging.XUnit.v3" Version="0.7.0" />
+
+    <!-- Assertions -->
+    <PackageReference Include="AwesomeAssertions" Version="9.3.0" />
+
+    <!-- Optional: HTTP interception for outbound HTTP calls.
+         Add when the service makes outbound HTTP requests to external services. -->
+    <!-- <PackageReference Include="JustEat.HttpClientInterception" Version="4.3.0" /> -->
+
+    <!-- Optional: typed Refit client. Add only if the service exposes a Refit interface. -->
+    <!-- <PackageReference Include="Refit" Version="8.0.0" /> -->
+    <!-- <PackageReference Include="Refit.HttpClientFactory" Version="8.0.0" /> -->
+
+    <!-- Optional: real dependencies via Testcontainers -->
+    <!-- <PackageReference Include="Testcontainers" Version="4.0.0" /> -->
+    <!-- <PackageReference Include="Testcontainers.DynamoDb" Version="4.0.0" /> -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\{{ServiceName}}\{{ServiceName}}.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.DeveloperTests.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,71 @@
+using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Http;
+using {{ServiceRootNamespace}};
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Discriminator-keyed fake (strategy 2) — registered as a singleton because Alba's
+/// AlbaHost is shared across the assembly. State is partitioned by the correlation ID
+/// each test sends in the <c>X-Correlation-Id</c> header.
+///
+/// The fake reads the header from <see cref="IHttpContextAccessor"/>, which the test
+/// fixture registers in DI. Tests that bypass the HTTP transport must seed/query using
+/// the correlation-id-keyed methods directly.
+/// </summary>
+public sealed class Fake{{Thing}}Repository : I{{Thing}}Repository
+{
+    private const string CorrelationHeader = "X-Correlation-Id";
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, {{Thing}}>> _byCorrelationId = new();
+    private readonly IHttpContextAccessor? _httpContextAccessor;
+
+    // Parameterless ctor lets the test fixture instantiate without needing DI.
+    // The accessor is set by DI when the host is built (AddHttpContextAccessor).
+    public Fake{{Thing}}Repository() { }
+
+    public Fake{{Thing}}Repository(IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    // --- Test-only seed/query (use correlation ID supplied by the test) ---
+
+    public void Add{{Thing}}(string correlationId, {{Thing}} thing) =>
+        Bucket(correlationId)[thing.Id] = thing;
+
+    public IReadOnlyList<{{Thing}}> Get{{Thing}}s(string correlationId) =>
+        _byCorrelationId.TryGetValue(correlationId, out var inner)
+            ? inner.Values.ToArray()
+            : Array.Empty<{{Thing}}>();
+
+    // --- Real interface methods ---
+    // Read the correlation ID from the active request so SUT-driven calls partition correctly.
+
+    public Task<{{Thing}}?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    {
+        var cid = ReadCorrelationId();
+        if (_byCorrelationId.TryGetValue(cid, out var inner) && inner.TryGetValue(id, out var thing))
+        {
+            return Task.FromResult<{{Thing}}?>(thing);
+        }
+        return Task.FromResult<{{Thing}}?>(null);
+    }
+
+    public Task AddAsync({{Thing}} thing, CancellationToken cancellationToken)
+    {
+        var cid = ReadCorrelationId();
+        Bucket(cid)[thing.Id] = thing;
+        return Task.CompletedTask;
+    }
+
+    // Implement any other I{{Thing}}Repository methods following the same pattern.
+
+    private ConcurrentDictionary<string, {{Thing}}> Bucket(string correlationId) =>
+        _byCorrelationId.GetOrAdd(correlationId, _ => new ConcurrentDictionary<string, {{Thing}}>());
+
+    private string ReadCorrelationId()
+    {
+        var header = _httpContextAccessor?.HttpContext?.Request.Headers[CorrelationHeader].ToString();
+        return string.IsNullOrEmpty(header) ? "<<no-correlation-id>>" : header!;
+    }
+}

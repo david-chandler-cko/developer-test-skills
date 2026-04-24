@@ -1,0 +1,59 @@
+using System.Collections.Immutable;
+using JustEat.HttpClientInterception;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test state container. Captures HTTP request traffic, holds the per-test correlation ID,
+/// and exposes query methods over the fakes the service has written to.
+/// Disposed at the end of each scenario.
+/// </summary>
+public sealed class TestScope : IDisposable
+{
+    private readonly Func<ClientCreationOptions, HttpClient> _apiClientFactory;
+    private readonly ClientCreationOptions _options;
+    private readonly IHttpClientInterceptorOptionsAccessor _httpClientInterceptorOptionsAccessor;
+    private readonly List<HttpRequestMessage> _requestMessages = new();
+
+    // Fakes the service depends on (resolved from DI). Add one field per fake.
+    private readonly Fake{{Thing}}Store _fake{{Thing}}Store;
+
+    public TestScope(
+        Func<ClientCreationOptions, HttpClient> apiClientFactory,
+        ClientCreationOptions options,
+        IHttpClientInterceptorOptionsAccessor httpClientInterceptorOptionsAccessor,
+        Fake{{Thing}}Store fake{{Thing}}Store)
+    {
+        _apiClientFactory = apiClientFactory;
+        _options = options;
+        _httpClientInterceptorOptionsAccessor = httpClientInterceptorOptionsAccessor;
+        _fake{{Thing}}Store = fake{{Thing}}Store;
+
+        // Build and activate the test's interceptor options via AsyncLocal.
+        var interceptorOptions = new HttpClientInterceptorOptions { ThrowOnMissingRegistration = true };
+        _options.ConfigureInterceptor(interceptorOptions);
+        _httpClientInterceptorOptionsAccessor.Current = interceptorOptions;
+
+        // Capture every intercepted outbound request for later assertion.
+        // OnSend is the canonical hook on JustEat's HttpClientInterceptorOptions.
+        interceptorOptions.OnSend = request =>
+        {
+            _requestMessages.Add(request);
+            return Task.CompletedTask;
+        };
+    }
+
+    public string CorrelationId => _options.CorrelationId;
+
+    public HttpClient CreateApiClient() => _apiClientFactory(_options);
+
+    // Query methods — partition by correlation ID because fakes are shared singletons.
+    public IReadOnlyList<{{Thing}}> Get{{Thing}}s() => _fake{{Thing}}Store.Get{{Thing}}s(_options.CorrelationId);
+
+    public IImmutableList<HttpRequestMessage> GetRequestMessages() => _requestMessages.ToImmutableList();
+
+    public void Dispose()
+    {
+        _httpClientInterceptorOptionsAccessor.Current = null;
+    }
+}

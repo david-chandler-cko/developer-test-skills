@@ -1,0 +1,71 @@
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using {{ServiceRootNamespace}}; // where Program.cs lives
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test WebApplicationFactory fixture. Default isolation strategy is per-test instance
+/// (strategy 1): each test constructs its own ApiFixture, so each gets its own DI graph and
+/// fresh fakes.
+///
+/// Fakes are held as properties so tests can seed/assert on them directly, AND registered
+/// in the host DI as the same instance — so the SUT and the test see one fake, not two.
+///
+/// To switch to strategy 3 (shared via [Collection]), make this class implement
+/// <see cref="IAsyncLifetime"/> and register it via <c>ICollectionFixture</c>.
+/// To switch to strategy 2 (shared singletons keyed by a discriminator), share this fixture
+/// at assembly scope and partition fake state inside the fakes themselves.
+/// </summary>
+public class ApiFixture : IAsyncDisposable
+{
+    private readonly WebApplicationFactory<Program> _webApplicationFactory;
+
+    // Hold each fake as a property. Add one line per outbound dependency.
+    public Fake{{Thing}}Repository Fake{{Thing}}Repository { get; } = new();
+
+    public ApiFixture()
+    {
+        _webApplicationFactory = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder
+                .ConfigureServices(ConfigureServices)
+                .ConfigureTestServices(ConfigureTestServices));
+    }
+
+    /// <summary>
+    /// In-process <see cref="HttpClient"/> routed through the TestServer.
+    /// </summary>
+    public HttpClient CreateClient() => _webApplicationFactory.CreateClient();
+
+    /// <summary>
+    /// Replace registrations in the service's own DI graph with the held fake instances.
+    /// CRITICAL: register the SAME instance the fixture holds (not the type), or the SUT
+    /// and test will see different fake objects.
+    /// </summary>
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
+        services.RemoveAll<I{{Thing}}Repository>();
+        services.AddSingleton<I{{Thing}}Repository>(Fake{{Thing}}Repository);
+
+        // Repeat for each outbound dependency:
+        // services.RemoveAll<IOtherClient>();
+        // services.AddSingleton<IOtherClient>(FakeOtherClient);
+    }
+
+    /// <summary>
+    /// Add test-only services (test data builders, xUnit logging, typed clients).
+    /// Called AFTER <see cref="ConfigureServices"/>.
+    /// </summary>
+    protected virtual void ConfigureTestServices(IServiceCollection services)
+    {
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _webApplicationFactory.DisposeAsync();
+        GC.SuppressFinalize(this);
+    }
+}

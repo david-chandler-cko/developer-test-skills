@@ -1,0 +1,30 @@
+using JustEat.HttpClientInterception;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Fluent configuration for a single scenario. Tests build one inside
+/// <see cref="TestContext.CreateScope"/>; the TestContext applies defaults first, then
+/// these per-scenario actions override.
+/// </summary>
+public sealed class TestScopeOptions
+{
+    internal List<Action<string, HttpClientInterceptorOptions>> InterceptorConfigurations { get; } = new();
+
+    /// <summary>
+    /// Register additional HTTP interceptor configurations for this scenario.
+    /// <paramref name="configure"/> receives the test's correlation ID so registrations
+    /// can match per-request values when the strategy uses a discriminator.
+    /// </summary>
+    public TestScopeOptions ConfigureInterceptor(Action<string, HttpClientInterceptorOptions> configure)
+    {
+        InterceptorConfigurations.Add(configure);
+        return this;
+    }
+
+    // Add other per-scenario levers here as needed:
+    // - Feature flag overrides
+    // - Auth mode (API key vs JWT)
+    // - Pre-seeded entities
+    // - Clock / Id factory overrides
+}

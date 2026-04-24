@@ -1,0 +1,66 @@
+using System.Collections.Concurrent;
+using Microsoft.AspNetCore.Http;
+using {{ServiceRootNamespace}}; // where I{{Thing}}Store lives
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Discriminator-keyed fake (isolation strategy 2) — required because Xunit.DI registers
+/// this as a singleton shared across parallel tests. Each scenario partitions its state by
+/// correlation ID, which the test scope sets on the HttpClient's <c>X-Correlation-Id</c>
+/// header and the fake reads via <see cref="IHttpContextAccessor"/>.
+///
+/// `Startup.cs` registers <c>AddHttpContextAccessor()</c> so this fake can be DI-built
+/// with the accessor injected.
+/// </summary>
+public sealed class Fake{{Thing}}Store : I{{Thing}}Store
+{
+    private const string CorrelationHeader = "X-Correlation-Id";
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, {{Thing}}>> _byCorrelationId = new();
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public Fake{{Thing}}Store(IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    // --- Test-only seed/query methods (use the test's correlation ID) ---
+
+    public void Add{{Thing}}(string correlationId, {{Thing}} thing) =>
+        Bucket(correlationId)[thing.Id] = thing;
+
+    public IReadOnlyList<{{Thing}}> Get{{Thing}}s(string correlationId) =>
+        _byCorrelationId.TryGetValue(correlationId, out var inner)
+            ? inner.Values.ToArray()
+            : Array.Empty<{{Thing}}>();
+
+    // --- Real interface methods ---
+
+    public Task<{{Thing}}?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    {
+        var correlationId = ReadCorrelationId();
+        if (_byCorrelationId.TryGetValue(correlationId, out var inner) && inner.TryGetValue(id, out var thing))
+        {
+            return Task.FromResult<{{Thing}}?>(thing);
+        }
+        return Task.FromResult<{{Thing}}?>(null);
+    }
+
+    public Task SaveAsync({{Thing}} thing, CancellationToken cancellationToken)
+    {
+        var correlationId = ReadCorrelationId();
+        Bucket(correlationId)[thing.Id] = thing;
+        return Task.CompletedTask;
+    }
+
+    // Implement the rest of I{{Thing}}Store here following the same read-correlation-then-mutate pattern.
+
+    private ConcurrentDictionary<string, {{Thing}}> Bucket(string correlationId) =>
+        _byCorrelationId.GetOrAdd(correlationId, _ => new ConcurrentDictionary<string, {{Thing}}>());
+
+    private string ReadCorrelationId()
+    {
+        var header = _httpContextAccessor.HttpContext?.Request.Headers[CorrelationHeader].ToString();
+        return string.IsNullOrEmpty(header) ? "<<no-correlation-id>>" : header!;
+    }
+}

@@ -1,0 +1,44 @@
+using System.Text.Json;
+using Amazon.Lambda.{{EventNamespace}}; // e.g., SQSEvents / DynamoDBEvents / KinesisEvents
+using AwesomeAssertions;
+using {{ServiceRootNamespace}};
+using {{TestsNamespace}}.Infrastructure;
+using Xunit;
+
+namespace {{TestsNamespace}};
+
+public class When{{Scenario}} : IClassFixture<LambdaTestServerFixture>, IDisposable
+{
+    private readonly TestScope _testScope;
+
+    public When{{Scenario}}(ITestOutputHelper testOutputHelper, LambdaTestServerFixture fixture)
+    {
+        _testScope = fixture.CreateTestScope(testOutputHelper);
+    }
+
+    [Fact]
+    public async Task Should{{ExpectedBehaviour}}()
+    {
+        // Arrange — build the event the Lambda is triggered by. Adapt the event shape
+        // to match the Lambda's trigger (SQSEvent / DynamoDBEvent / KinesisEvent / ...).
+        var thing = new {{Thing}}(/* fields */);
+        // NOTE: SQSEvent.Records is null by default on Amazon.Lambda.SQSEvents 2.x, so
+        // assign a List explicitly rather than relying on a collection-initializer.
+        var sqsEvent = new {{EventType}}
+        {
+            Records = new List<{{EventType}}.SQSMessage>
+            {
+                new() { MessageId = "m-1", Body = JsonSerializer.Serialize(thing) },
+            },
+        };
+
+        // Act
+        await _testScope.InvokeFunction(sqsEvent);
+
+        // Assert — query fake state to verify observable side effects.
+        var published = _testScope.Fake{{Thing}}Publisher.GetPublished();
+        published.Should().ContainSingle().Which.Should().BeEquivalentTo(thing);
+    }
+
+    public void Dispose() => _testScope.Dispose();
+}

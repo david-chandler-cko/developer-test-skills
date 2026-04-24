@@ -1,0 +1,66 @@
+using System.Collections.Immutable;
+using Alba;
+using JustEat.HttpClientInterception;
+using MartinCostello.Logging.XUnit;
+using Microsoft.Extensions.DependencyInjection;
+using {{TestsNamespace}}.Infrastructure.Extensions;
+using Xunit;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test instance. Holds the per-scenario interceptor options (set on AsyncLocal so each
+/// parallel test contributes its own registrations) and exposes fakes the test will assert on.
+/// </summary>
+public sealed class TestScope : IDisposable
+{
+    private readonly IAlbaHost _system;
+    private readonly string _apiKey;
+    private readonly IHttpClientInterceptorOptionsAccessor _interceptorAccessor;
+    private readonly HttpClientInterceptorOptions _interceptorOptions = new() { ThrowOnMissingRegistration = true };
+    private readonly List<HttpRequestMessage> _requestMessages = new();
+
+    public TestScope(
+        IAlbaHost system,
+        string apiKey,
+        ITestOutputHelper outputHelper,
+        Fake{{Thing}}Repository fake{{Thing}}Repository,
+        IHttpClientInterceptorOptionsAccessor interceptorAccessor)
+    {
+        _system = system;
+        _apiKey = apiKey;
+        _interceptorAccessor = interceptorAccessor;
+        Fake{{Thing}}Repository = fake{{Thing}}Repository;
+        CorrelationId = Guid.NewGuid();
+
+        _system.Services.GetRequiredService<ITestOutputHelperAccessor>().OutputHelper = outputHelper;
+        _interceptorAccessor.Current = _interceptorOptions;
+
+        // Capture every intercepted request so tests can assert on outbound HTTP traffic.
+        // OnSend on HttpClientInterceptorOptions is the canonical hook in JustEat 4.x.
+        _interceptorOptions.OnSend = request =>
+        {
+            _requestMessages.Add(request);
+            return Task.CompletedTask;
+        };
+    }
+
+    public Guid CorrelationId { get; }
+    public Fake{{Thing}}Repository Fake{{Thing}}Repository { get; }
+
+    public Task<IScenarioResult> Scenario(Action<Scenario> configure) =>
+        _system.Scenario(scenario =>
+        {
+            scenario.WithApiKey(_apiKey);
+            scenario.WithCorrelationId(CorrelationId.ToString("D"));
+            configure(scenario);
+        });
+
+    public IImmutableList<HttpRequestMessage> GetRequestMessages() => _requestMessages.ToImmutableList();
+
+    public void Dispose()
+    {
+        _system.Services.GetRequiredService<ITestOutputHelperAccessor>().OutputHelper = null;
+        _interceptorAccessor.Current = null;
+    }
+}

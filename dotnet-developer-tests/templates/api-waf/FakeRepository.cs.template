@@ -1,0 +1,45 @@
+using {{ServiceRootNamespace}}; // where I{{Thing}}Repository lives
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test-instance fake (strategy 1, the recommended default).
+/// Plain Dictionary is safe because only one test touches this instance.
+///
+/// For strategy 2 (shared singleton, partitioned by a discriminator the service propagates),
+/// replace the storage with <c>ConcurrentDictionary&lt;TDiscriminator, ConcurrentDictionary&lt;string, {{Thing}}&gt;&gt;</c>
+/// and have query methods take the discriminator as a parameter.
+/// </summary>
+public sealed class Fake{{Thing}}Repository : I{{Thing}}Repository
+{
+    private readonly Dictionary<string, {{Thing}}> _items = new();
+
+    // --- Test-only seed/query methods ---
+
+    public void Seed({{Thing}} thing) => _items[thing.Id] = thing;
+
+    public IReadOnlyList<{{Thing}}> GetAll() => _items.Values.ToList();
+
+    // --- Real interface methods ---
+    // Implement EVERY method on I{{Thing}}Repository. Pattern:
+    //   - reads return Task.FromResult of a lookup against _items;
+    //   - writes mutate _items and return Task.CompletedTask;
+    //   - return collections as new List/Array, never expose _items directly.
+
+    public Task<{{Thing}}?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    {
+        _items.TryGetValue(id, out var thing);
+        return Task.FromResult(thing);
+    }
+
+    public Task<IReadOnlyList<{{Thing}}>> GetAllAsync(CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<{{Thing}}>>(_items.Values.ToList());
+
+    public Task AddAsync({{Thing}} thing, CancellationToken cancellationToken)
+    {
+        _items[thing.Id] = thing;
+        return Task.CompletedTask;
+    }
+
+    // Add any other I{{Thing}}Repository methods here following the same pattern.
+}

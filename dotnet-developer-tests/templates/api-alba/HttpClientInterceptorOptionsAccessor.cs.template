@@ -1,0 +1,26 @@
+using JustEat.HttpClientInterception;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// `JustEat.HttpClientInterception` does not ship an accessor abstraction; this is a
+/// test-only helper so each parallel test can flow its own options through
+/// <see cref="InterceptingHttpMessageHandler"/>. AsyncLocal carries the value across
+/// the request pipeline; <c>AlbaHost.Server.PreserveExecutionContext = true</c> is
+/// required for it to flow.
+/// </summary>
+public interface IHttpClientInterceptorOptionsAccessor
+{
+    HttpClientInterceptorOptions? Current { get; set; }
+}
+
+public sealed class HttpClientInterceptorOptionsAccessor : IHttpClientInterceptorOptionsAccessor
+{
+    private static readonly AsyncLocal<HttpClientInterceptorOptions?> _options = new();
+
+    public HttpClientInterceptorOptions? Current
+    {
+        get => _options.Value;
+        set => _options.Value = value;
+    }
+}

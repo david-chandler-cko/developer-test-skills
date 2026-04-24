@@ -1,0 +1,124 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Hosting;
+using {{ServiceRootNamespace}}; // the service's root namespace
+
+namespace {{TestsNamespace}};
+
+/// <summary>
+/// Xunit.DependencyInjection convention — a class named Startup with ConfigureServices
+/// and ConfigureHost is discovered automatically. Do not rename this class or the methods.
+/// </summary>
+public sealed class Startup
+{
+    /// <summary>
+    /// Register test-assembly-wide fakes as singletons. Services added here are available
+    /// in every TestContext / TestScope instantiation.
+    /// </summary>
+    public static void ConfigureServices(IServiceCollection services)
+    {
+        // One pair per fake — first register the concrete so tests can resolve it directly,
+        // then bind the real interface to the same instance.
+        // services.AddSingleton<Fake{{Thing}}Store>();
+        // services.AddSingleton<I{{Thing}}Store>(sp => sp.GetRequiredService<Fake{{Thing}}Store>());
+
+        // JWT: fake issuer + signing key (only if the service validates JWTs)
+        // services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, opts =>
+        // {
+        //     var cfg = new OpenIdConnectConfiguration { Issuer = FakeTokenIssuer.Issuer };
+        //     cfg.SigningKeys.Add(FakeTokenIssuer.SecurityKey);
+        //     opts.Authority = null;
+        //     opts.Configuration = cfg;
+        // });
+
+        // Disable health checks and warmup tasks so they don't run during tests.
+        services.PostConfigure<HealthCheckServiceOptions>(options => options.Registrations.Clear());
+
+        var warmupTasks = services.Where(s =>
+            s.ServiceType == typeof(IHostedService) && s.ImplementationFactory != null).ToList();
+        foreach (var s in warmupTasks)
+        {
+            services.Remove(s);
+        }
+    }
+
+    /// <summary>
+    /// Build the in-memory TestServer hosting the service.
+    ///
+    /// The hosting strategy depends on whether the service uses the legacy `Startup` class
+    /// pattern or the modern minimal-API `Program.cs` pattern. The two branches below cover both;
+    /// keep one and delete the other.
+    /// </summary>
+    public static void ConfigureHost(IHostBuilder hostBuilder) =>
+        hostBuilder
+            .ConfigureWebHost(webHostBuilder => webHostBuilder
+                // PreserveExecutionContext = true is REQUIRED for AsyncLocal<>-based
+                // HTTP interceptor isolation (see AsyncHttpClientInterceptorOptionsAccessor).
+                .UseTestServer(options => options.PreserveExecutionContext = true)
+                .ConfigureTestServices(testServices =>
+                {
+                    testServices.AddTransient<Infrastructure.TestContext>();
+
+                    // Client factory — returns an HttpClient wired to the TestServer.
+                    // For services exposing a typed Refit client, build one here using
+                    // testServer.CreateHandler() as the message handler factory.
+                    testServices.AddTransient<Func<Infrastructure.ClientCreationOptions, HttpClient>>(services => options =>
+                    {
+                        var host = services.GetRequiredService<IHost>();
+                        var testServer = host.GetTestServer();
+                        var client = testServer.CreateClient();
+                        client.DefaultRequestHeaders.Add("X-Correlation-Id", options.CorrelationId);
+                        return client;
+                    });
+
+                    // TestScope factory (resolved via ActivatorUtilities to pull registered fakes).
+                    testServices.AddTransient<Func<Infrastructure.ClientCreationOptions, Infrastructure.TestScope>>(services => options =>
+                        ActivatorUtilities.CreateInstance<Infrastructure.TestScope>(services, options));
+
+                    // HTTP interception: accessor + filter.
+                    testServices.AddSingleton<Infrastructure.IHttpClientInterceptorOptionsAccessor,
+                        Infrastructure.AsyncHttpClientInterceptorOptionsAccessor>();
+                    testServices.AddSingleton<Microsoft.Extensions.Http.IHttpMessageHandlerBuilderFilter,
+                        Infrastructure.HttpClientInterceptionFilter>();
+
+                    // For strategy-2 fakes that read the active correlation ID from HttpContext.
+                    testServices.AddHttpContextAccessor();
+                })
+                .ConfigureAppConfiguration(configuration =>
+                {
+                    configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
+                    configuration.AddJsonFile("appsettings.DeveloperTests.json", optional: false, reloadOnChange: false);
+                })
+                .UseEnvironment("Development")
+                // === Branch A: legacy `Startup` class ===
+                // Uncomment this line and delete branches B/C below.
+                // .UseStartup<{{ServiceRootNamespace}}.Startup>()
+
+                // === Branch B: minimal-API service (Program.cs builds WebApplication) ===
+                // Replicate the production registrations and endpoints inline. Keep this in sync
+                // with src/{{ServiceName}}/Program.cs whenever the production endpoints change.
+                .ConfigureServices((context, services) =>
+                {
+                    // Required because the inline Configure() below uses UseRouting/UseEndpoints.
+                    services.AddRouting();
+
+                    // Replicate src/{{ServiceName}}/Program.cs's `builder.Services.Add*` calls here.
+                    // Example:
+                    // services.AddSingleton<I{{Thing}}Store, InMemory{{Thing}}Store>();
+                })
+                .Configure(app =>
+                {
+                    app.UseRouting();
+                    app.UseEndpoints(endpoints =>
+                    {
+                        // Replicate src/{{ServiceName}}/Program.cs's `app.Map*` calls here.
+                        // Example:
+                        // endpoints.MapPost("/{{Path}}", async (...) => { ... });
+                    });
+                }));
+}

@@ -1,0 +1,13 @@
+using JustEat.HttpClientInterception;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Carries per-scenario configuration from <see cref="TestContext"/> to the client factory
+/// and <see cref="TestScope"/>. Populate fields as needed (auth mode, overrides, etc.).
+/// </summary>
+public sealed record ClientCreationOptions
+{
+    public required string CorrelationId { get; init; }
+    public required Action<HttpClientInterceptorOptions> ConfigureInterceptor { get; init; }
+}

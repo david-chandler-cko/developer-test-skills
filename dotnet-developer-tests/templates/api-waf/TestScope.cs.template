@@ -1,0 +1,31 @@
+using Microsoft.Extensions.DependencyInjection;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Optional per-test wrapper. For very simple projects, tests can use <see cref="ApiFixture"/>
+/// directly. Introduce a TestScope when per-test setup is shared across multiple facts in a class
+/// (e.g., resolving fakes, building a typed client, holding correlation IDs).
+/// </summary>
+public sealed class TestScope : IAsyncDisposable
+{
+    private readonly ApiFixture _fixture;
+
+    public TestScope(ApiFixture fixture)
+    {
+        _fixture = fixture;
+        // Resolve fakes once so tests can seed/query them directly:
+        // Fake{{Thing}}Repository = _fixture.Services.GetRequiredService<Fake{{Thing}}Repository>();
+    }
+
+    public HttpClient CreateClient() => _fixture.CreateClient();
+
+    public ValueTask DisposeAsync()
+    {
+        // For strategy 1 (per-test instances), the fixture itself is disposed by the test;
+        // there's nothing to reset here.
+        // For strategy 2 (discriminator-keyed singletons), state is partitioned by discriminator.
+        // For strategy 3 (shared singleton with [Collection]), optionally clear state here.
+        return ValueTask.CompletedTask;
+    }
+}

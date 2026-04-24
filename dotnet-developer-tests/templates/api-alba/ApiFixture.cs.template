@@ -1,0 +1,77 @@
+using Alba;
+using JustEat.HttpClientInterception;
+using MartinCostello.Logging.XUnit;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Http;
+using Microsoft.Extensions.Logging;
+using Xunit;
+using {{ServiceRootNamespace}}; // Program lives here
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Shared assembly fixture — builds the AlbaHost once for the test run.
+/// Fakes are registered as DI singletons so they receive their own dependencies (e.g.
+/// IHttpContextAccessor for correlation-ID partitioning). Strategy 2 — partition state
+/// inside the fakes by the correlation ID each test sends.
+/// </summary>
+public sealed class ApiFixture : IAsyncLifetime
+{
+    private readonly HttpClientInterceptorOptionsAccessor _interceptorAccessor = new();
+    private IAlbaHost _system = null!;
+    private Fake{{Thing}}Repository _fake{{Thing}}Repository = null!;
+
+    public string ApiKey { get; } = Guid.NewGuid().ToString();
+
+    public IAlbaHost System => _system;
+    public IHttpClientInterceptorOptionsAccessor InterceptorAccessor => _interceptorAccessor;
+    public Fake{{Thing}}Repository Fake{{Thing}}Repository => _fake{{Thing}}Repository;
+
+    public async ValueTask InitializeAsync()
+    {
+        _system = await AlbaHost.For<Program>(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                // Make HttpContext available to singletons that need to read the active request's
+                // correlation ID — the typical strategy-2 partitioning approach.
+                services.AddHttpContextAccessor();
+
+                // Register the fake under both its concrete type and the real interface so DI
+                // builds ONE instance with its dependencies wired, and the SUT and tests share it.
+                services.RemoveAll<I{{Thing}}Repository>();
+                services.AddSingleton<Fake{{Thing}}Repository>();
+                services.AddSingleton<I{{Thing}}Repository>(sp => sp.GetRequiredService<Fake{{Thing}}Repository>());
+
+                // Per-test interceptor accessor + filter so the SUT's HttpClient pipeline
+                // consults this test's options on every outbound request.
+                services.AddSingleton<IHttpClientInterceptorOptionsAccessor>(_interceptorAccessor);
+                services.AddSingleton<IHttpMessageHandlerBuilderFilter, HttpClientInterceptionFilter>();
+            });
+
+            builder.ConfigureTestServices(services =>
+            {
+                services.AddLogging(l => l.AddXUnit());
+            });
+
+            builder.UseSetting("{{ApiKeyConfigPath}}", ApiKey); // e.g., "Authentication:ApiKey"
+        });
+
+        // CRITICAL — required for AsyncLocal HTTP interceptor isolation across the request pipeline.
+        _system.Server.PreserveExecutionContext = true;
+
+        // Resolve the DI-built fake so the fixture and the test scope share the same instance
+        // the SUT writes to.
+        _fake{{Thing}}Repository = _system.Services.GetRequiredService<Fake{{Thing}}Repository>();
+    }
+
+    public TestScope CreateTestScope(ITestOutputHelper outputHelper) =>
+        ActivatorUtilities.CreateInstance<TestScope>(
+            _system.Services, _system, ApiKey, outputHelper, _fake{{Thing}}Repository, _interceptorAccessor);
+
+    public async ValueTask DisposeAsync() => await _system.DisposeAsync();
+}

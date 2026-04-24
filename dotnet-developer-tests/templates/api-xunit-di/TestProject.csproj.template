@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>{{TargetFramework}}</TargetFramework><!-- e.g., net8.0 — xUnit v2 while Xunit.DependencyInjection does not ship a v3 release -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test framework (xUnit v2 — v3 not yet supported by Xunit.DependencyInjection) -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Xunit.DependencyInjection" Version="8.9.1" />
+
+    <!-- Web host testing — both packages MUST be at the same patch version, otherwise NuGet
+         emits NU1605 (downgrade). They also MUST match the target framework's ASP.NET version. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.16" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.16" />
+
+    <!-- HTTP interception -->
+    <PackageReference Include="JustEat.HttpClientInterception" Version="4.3.0" />
+
+    <!-- Typed HTTP client -->
+    <PackageReference Include="Refit" Version="8.0.0" />
+    <PackageReference Include="Refit.HttpClientFactory" Version="8.0.0" />
+
+    <!-- Logging -->
+    <PackageReference Include="MartinCostello.Logging.XUnit" Version="0.5.1" />
+
+    <!-- Assertions -->
+    <PackageReference Include="AwesomeAssertions" Version="9.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\{{ServiceName}}\{{ServiceName}}.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.DeveloperTests.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

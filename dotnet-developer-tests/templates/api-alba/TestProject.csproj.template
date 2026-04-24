@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>{{TargetFramework}}</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Test framework -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Alba -->
+    <PackageReference Include="Alba" Version="8.1.1" />
+    <!-- AspNetCore versions MUST match the target framework: net10 → 10.0.x, net9 → 9.0.x, net8 → 8.0.x. -->
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="{{AspNetCoreTestingVersion}}" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="{{AspNetCoreTestingVersion}}" />
+
+    <!-- HTTP interception -->
+    <PackageReference Include="JustEat.HttpClientInterception" Version="4.3.0" />
+
+    <!-- Logging -->
+    <PackageReference Include="MartinCostello.Logging.XUnit.v3" Version="0.7.0" />
+
+    <!-- Assertions -->
+    <PackageReference Include="AwesomeAssertions" Version="9.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\{{ServiceName}}\{{ServiceName}}.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

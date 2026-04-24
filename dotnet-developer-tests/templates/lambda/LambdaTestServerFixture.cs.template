@@ -1,0 +1,12 @@
+using Xunit;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Thin factory used via <c>IClassFixture&lt;LambdaTestServerFixture&gt;</c>.
+/// The fixture itself holds no state; each test gets a fresh <see cref="TestScope"/>.
+/// </summary>
+public sealed class LambdaTestServerFixture
+{
+    public TestScope CreateTestScope(ITestOutputHelper testOutputHelper) => new(testOutputHelper);
+}

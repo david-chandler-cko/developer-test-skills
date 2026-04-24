@@ -1,0 +1,46 @@
+using JustEat.HttpClientInterception;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Factory for per-test <see cref="TestScope"/> instances. Composes default HTTP interceptor
+/// registrations with per-scenario overrides via <see cref="TestScopeOptions"/>.
+/// Resolved as transient in <see cref="Startup.ConfigureHost"/>.
+/// </summary>
+public sealed class TestContext(
+    Func<ClientCreationOptions, TestScope> testScopeFactory)
+{
+    public TestScope CreateScope(
+        Action<TestScopeOptions>? customizeScope = null,
+        string? correlationId = null)
+    {
+        correlationId ??= Guid.NewGuid().ToString();
+        var testScopeOptions = new TestScopeOptions();
+        customizeScope?.Invoke(testScopeOptions);
+
+        var options = new ClientCreationOptions
+        {
+            CorrelationId = correlationId,
+            ConfigureInterceptor = interceptorOptions =>
+            {
+                // Default registrations — one entry per external dependency that every
+                // scenario expects to be mocked. Keep these as `RegisterXxx` extension methods
+                // grouped by target service in Infrastructure/Extensions/.
+                {{DefaultInterceptorRegistrations}} // e.g.:
+                // interceptorOptions.RegisterSuccessfulIdpWellKnownResponse(correlationId);
+                // interceptorOptions.RegisterSuccessfulTokenIntrospectionResponse(correlationId);
+
+                // Apply per-scenario overrides.
+                foreach (var configure in testScopeOptions.InterceptorConfigurations)
+                {
+                    configure(correlationId, interceptorOptions);
+                }
+
+                // Fail fast when the service hits an unmocked URL.
+                interceptorOptions.ThrowOnMissingRegistration = true;
+            },
+        };
+
+        return testScopeFactory(options);
+    }
+}

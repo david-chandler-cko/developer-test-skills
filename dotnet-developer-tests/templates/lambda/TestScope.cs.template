@@ -1,0 +1,129 @@
+using System.Diagnostics;
+using System.Text;
+using Amazon.Lambda.{{EventNamespace}}; // e.g., KinesisEvents / SQSEvents / DynamoDBEvents
+using Amazon.Lambda.Serialization.SystemTextJson;
+using AwesomeAssertions;
+using MartinCostello.Logging.XUnit;
+using MartinCostello.Testing.AwsLambdaTestServer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using {{ServiceRootNamespace}}; // where the Lambda EntryPoint class lives
+using Xunit;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test state container. Instance fakes live here; each test gets its own TestScope
+/// via <see cref="LambdaTestServerFixture.CreateTestScope"/>, so no state is shared
+/// across parallel tests (isolation strategy 1).
+/// </summary>
+public sealed class TestScope : IDisposable, ITestOutputHelperAccessor
+{
+    private static readonly DefaultLambdaJsonSerializer Serializer = new();
+
+    public TestScope(ITestOutputHelper testOutputHelper)
+    {
+        ((ITestOutputHelperAccessor)this).OutputHelper = testOutputHelper;
+    }
+
+    // One property per outbound dependency. Initialize with `new()` so each TestScope
+    // owns its own fakes. No ConcurrentDictionary needed -- only this test touches them.
+    public Fake{{Thing}}Publisher Fake{{Thing}}Publisher { get; } = new();
+    // Add more fake properties here as the Lambda gains outbound dependencies, e.g.:
+    // public FakeThingStore FakeThingStore { get; } = new();
+
+    ITestOutputHelper? ITestOutputHelperAccessor.OutputHelper { get; set; }
+
+    /// <summary>
+    /// Invokes the Lambda function through <see cref="LambdaTestServer"/>.
+    /// Pass a fully-constructed event (e.g., an SQSEvent built inline in the test, or
+    /// produced by a small builder if the project has one).
+    /// </summary>
+    public async Task<LambdaTestResponse?> InvokeFunction(
+        {{EventType}} lambdaEvent,
+        Action<IServiceCollection>? serviceCollectionModifications = null,
+        bool allowFailure = false)
+    {
+        TimeSpan timeout = Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(5);
+
+        // Lambda runtime serialises events with the same JSON shape the function will
+        // deserialise back, so use the official Lambda serializer here.
+        using var inputStream = new MemoryStream();
+        Serializer.Serialize(lambdaEvent, inputStream);
+        var inputJson = Encoding.UTF8.GetString(inputStream.ToArray());
+
+        ((ITestOutputHelperAccessor)this).OutputHelper?.WriteLine(
+            $"Invoking function with input: {inputJson}. Will timeout after {timeout}.");
+
+        using var testServer = new LambdaTestServer(new LambdaTestServerOptions { FunctionTimeout = timeout });
+        using var cancellationTokenSource = new CancellationTokenSource(timeout);
+        await testServer.StartAsync(cancellationTokenSource.Token);
+
+        var testContext = await testServer.EnqueueAsync(inputJson);
+        StopServerWhenResponseIsAvailable(testContext, cancellationTokenSource);
+
+        await {{EntrypointType}}.RunAsync(
+            testServer.CreateClient(),
+            modifyServices: services => ModifyServices(services, serviceCollectionModifications),
+            cancellationToken: cancellationTokenSource.Token);
+
+        testContext.Response.TryRead(out var response).Should().BeTrue();
+        ((ITestOutputHelperAccessor)this).OutputHelper?.WriteLine(
+            $"Finished invoking function with input: {inputJson}");
+
+        if (allowFailure)
+        {
+            return response;
+        }
+
+        if (response == null)
+        {
+            throw new InvalidOperationException("Function invocation failed without providing an error message.");
+        }
+
+        if (!response.IsSuccessful)
+        {
+            throw new InvalidOperationException(
+                $"Function invocation failed: {Encoding.UTF8.GetString(response.Content)}");
+        }
+
+        return response;
+    }
+
+    private static void StopServerWhenResponseIsAvailable(
+        LambdaTestContext testContext,
+        CancellationTokenSource cancellationTokenSource)
+    {
+        _ = Task.Run(async () =>
+        {
+            await testContext.Response.WaitToReadAsync(cancellationTokenSource.Token);
+            if (!cancellationTokenSource.IsCancellationRequested)
+            {
+                await cancellationTokenSource.CancelAsync();
+            }
+        });
+    }
+
+    private IServiceCollection ModifyServices(
+        IServiceCollection serviceCollection,
+        Action<IServiceCollection>? serviceCollectionModifications)
+    {
+        serviceCollection.AddLogging(config =>
+        {
+            config.AddXUnit(this, options => options.IncludeScopes = true);
+        });
+
+        // One registration per fake — binds the real interface to the instance on this TestScope.
+        serviceCollection.AddSingleton<I{{Thing}}Publisher>(Fake{{Thing}}Publisher);
+        // Repeat for each fake property:
+        // serviceCollection.AddSingleton<IThingStore>(FakeThingStore);
+
+        serviceCollectionModifications?.Invoke(serviceCollection);
+        return serviceCollection;
+    }
+
+    public void Dispose()
+    {
+        // Nothing to dispose — all fakes are just in-memory collections that go away with the scope.
+    }
+}

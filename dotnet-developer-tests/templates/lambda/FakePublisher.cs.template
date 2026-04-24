@@ -1,0 +1,29 @@
+using {{ServiceRootNamespace}}; // where I{{Thing}}Publisher lives
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test-instance fake (strategy 1) for an outbound publisher / sender / writer.
+/// Plain List is safe because only one test touches this instance.
+///
+/// Use this shape when the dependency is write-only (publish, send, emit, append).
+/// For read-write repository dependencies, use Fake{{Thing}}Repository instead.
+/// </summary>
+public sealed class Fake{{Thing}}Publisher : I{{Thing}}Publisher
+{
+    private readonly List<{{Thing}}> _published = new();
+
+    // --- Test-only query methods ---
+
+    public IReadOnlyList<{{Thing}}> GetPublished() => _published.ToList();
+
+    // --- Real interface methods ---
+
+    public Task PublishAsync({{Thing}} thing, CancellationToken cancellationToken)
+    {
+        _published.Add(thing);
+        return Task.CompletedTask;
+    }
+
+    // Add any other I{{Thing}}Publisher methods here following the same append-and-record pattern.
+}

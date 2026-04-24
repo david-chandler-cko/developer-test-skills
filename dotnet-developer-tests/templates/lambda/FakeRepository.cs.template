@@ -1,0 +1,28 @@
+using {{ServiceRootNamespace}}; // where I{{Thing}}Repository lives
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Per-test-instance fake. Only one test touches this instance, so plain Dictionary/List is fine.
+/// Implements every method of I{{Thing}}Repository; wraps sync operations in Task.FromResult.
+/// </summary>
+public sealed class Fake{{Thing}}Repository : I{{Thing}}Repository
+{
+    private readonly Dictionary<string, {{Thing}}> _things = new();
+
+    // --- Test-only seed/query methods ---
+
+    public void Add{{Thing}}({{Thing}} thing) => _things[thing.Id] = thing;
+
+    public IReadOnlyList<{{Thing}}> GetAll() => _things.Values.ToList();
+
+    // --- Real interface methods ---
+
+    public Task<{{Thing}}?> GetByIdAsync(string id, CancellationToken cancellationToken)
+    {
+        _things.TryGetValue(id, out var thing);
+        return Task.FromResult(thing);
+    }
+
+    // Implement the rest of I{{Thing}}Repository here.
+}

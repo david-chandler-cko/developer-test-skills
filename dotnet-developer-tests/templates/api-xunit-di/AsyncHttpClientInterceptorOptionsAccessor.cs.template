@@ -1,0 +1,25 @@
+using JustEat.HttpClientInterception;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+public interface IHttpClientInterceptorOptionsAccessor
+{
+    HttpClientInterceptorOptions? Current { get; set; }
+}
+
+/// <summary>
+/// Stores the active HttpClientInterceptorOptions in AsyncLocal so each parallel test
+/// flows its own configuration through <see cref="InterceptingHttpMessageHandler"/>.
+/// Requires <c>TestServer.PreserveExecutionContext = true</c> — otherwise the ASP.NET
+/// request pipeline drops the AsyncLocal value.
+/// </summary>
+public sealed class AsyncHttpClientInterceptorOptionsAccessor : IHttpClientInterceptorOptionsAccessor
+{
+    private static readonly AsyncLocal<HttpClientInterceptorOptions?> _options = new();
+
+    public HttpClientInterceptorOptions? Current
+    {
+        get => _options.Value;
+        set => _options.Value = value;
+    }
+}

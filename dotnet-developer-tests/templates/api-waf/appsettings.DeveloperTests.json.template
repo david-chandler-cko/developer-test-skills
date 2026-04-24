@@ -1,0 +1,15 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "Telemetry": {
+    "Metrics": { "Enabled": false },
+    "Tracing": { "UseOtlpCollector": false }
+  },
+  "Authentication": {
+    "ApiKey": "test-api-key-please-override-per-test"
+  }
+}

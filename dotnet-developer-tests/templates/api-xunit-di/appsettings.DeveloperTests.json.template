@@ -1,0 +1,16 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "Telemetry": {
+    "Metrics": { "Enabled": false },
+    "Tracing": { "UseOtlpCollector": false }
+  },
+  "Authentication": {
+    "Authority": "https://localhost:5999",
+    "Audience": "test"
+  }
+}

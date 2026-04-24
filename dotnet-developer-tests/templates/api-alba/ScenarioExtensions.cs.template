@@ -1,0 +1,29 @@
+using Alba;
+
+namespace {{TestsNamespace}}.Infrastructure.Extensions;
+
+/// <summary>
+/// Extension methods keeping scenarios readable. Add one per common request shape.
+/// </summary>
+public static class ScenarioExtensions
+{
+    public static Scenario WithApiKey(this Scenario scenario, string apiKey)
+    {
+        scenario.WithRequestHeader("Authorization", apiKey);
+        return scenario;
+    }
+
+    public static Scenario WithCorrelationId(this Scenario scenario, string correlationId)
+    {
+        scenario.WithRequestHeader("{{CorrelationIdHeader}}", correlationId); // e.g., "X-Correlation-Id"
+        return scenario;
+    }
+
+    // Add domain-specific helpers per endpoint the tests exercise.
+    // Example:
+    // public static Scenario SendCreatePayment(this Scenario scenario, CreatePaymentRequest request)
+    // {
+    //     scenario.Post.Json(request).ToUrl("/payments");
+    //     return scenario;
+    // }
+}

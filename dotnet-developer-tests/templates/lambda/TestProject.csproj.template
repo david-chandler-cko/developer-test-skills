@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>{{TargetFramework}}</TargetFramework><!-- e.g., net10.0 -->
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lambda SDK -->
+    <PackageReference Include="Amazon.Lambda.Core" Version="2.8.1" />
+    <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
+    <PackageReference Include="Amazon.Lambda.TestUtilities" Version="3.0.1" />
+    <!-- Add the event model package(s) your Lambda consumes (versions current as of 2026-04): -->
+    <!-- <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="3.1.2" /> -->
+    <!-- <PackageReference Include="Amazon.Lambda.KinesisEvents" Version="3.0.2" /> -->
+    <!-- <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.2.1" /> -->
+    <!-- Note: SQSEvents has not moved to a 3.x track on nuget.org yet. -->
+    <!-- Note: Lambda test server requires the Serialization.SystemTextJson package. -->
+
+    <!-- Lambda test server -->
+    <PackageReference Include="MartinCostello.Testing.AwsLambdaTestServer" Version="0.12.0" />
+
+    <!-- Test framework (xUnit v3) -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+
+    <!-- Logging -->
+    <PackageReference Include="MartinCostello.Logging.XUnit.v3" Version="0.7.0" />
+
+    <!-- Assertions -->
+    <PackageReference Include="AwesomeAssertions" Version="9.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\{{ServiceName}}\{{ServiceName}}.csproj" />
+    <!-- If a shared test-helpers project exists, also reference it here -->
+  </ItemGroup>
+
+</Project>
