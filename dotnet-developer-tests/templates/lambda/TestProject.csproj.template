@@ -35,6 +35,10 @@
 
     <!-- Assertions -->
     <PackageReference Include="AwesomeAssertions" Version="9.3.0" />
+
+    <!-- HTTP interception (uncomment if the Lambda makes outbound HTTP calls;
+         see references/scaffold-lambda.md "Variant: outbound HTTP / gRPC"). -->
+    <!-- <PackageReference Include="JustEat.HttpClientInterception" Version="5.1.0" /> -->
   </ItemGroup>
 
   <ItemGroup>

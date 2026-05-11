@@ -1,0 +1,27 @@
+using JustEat.HttpClientInterception;
+using Microsoft.Extensions.Http;
+
+namespace {{TestsNamespace}}.Infrastructure;
+
+/// <summary>
+/// Routes every HttpClient produced by IHttpClientFactory through the test's
+/// HttpClientInterceptorOptions. Each Lambda test rebuilds its own DI graph
+/// (isolation strategy 1), so the options can be bound at filter construction
+/// — no AsyncLocal accessor needed.
+/// </summary>
+public sealed class HttpClientInterceptionFilter : IHttpMessageHandlerBuilderFilter
+{
+    private readonly HttpClientInterceptorOptions _options;
+
+    public HttpClientInterceptionFilter(HttpClientInterceptorOptions options)
+    {
+        _options = options;
+    }
+
+    public Action<HttpMessageHandlerBuilder> Configure(Action<HttpMessageHandlerBuilder> next) =>
+        builder =>
+        {
+            next(builder);
+            builder.AdditionalHandlers.Add(new InterceptingHttpMessageHandler(_options));
+        };
+}

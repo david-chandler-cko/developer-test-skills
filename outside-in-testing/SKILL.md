@@ -18,6 +18,28 @@ This is not integration testing (no real external systems), not unit testing (no
 3. **Every scenario is isolated from every other running in parallel.** *How* you isolate is a design choice (see [decision-rules](references/decision-rules.md) §Isolation strategies) — not a fixed rule.
 4. **Prefer fakes over mocks.** A fake is a dumb in-memory implementation of a real interface (e.g., a `ConcurrentDictionary`-backed store that satisfies `IProcessorRepository`). You assert on its state, not on which methods got called. Mocks that verify call patterns are brittle and leak implementation details; use them only when there's no observable state to check.
 
+## When project precedent contradicts the methodology
+
+Some existing test projects in the codebase will violate this skill — usually because they predate it, or someone reached for the path of least resistance. **An existing wrong pattern is not licence to repeat it.** Methodology beats precedent: every new contributor reads the codebase as the source of truth and copies it forward, so consistency with a broken shape compounds.
+
+A common form: a test project ships a `Fake<ExternalService>ApiClient : I<ExternalService>ApiClient` where the real implementation wraps `HttpClient`. The methodology says HTTP is intercepted at the transport (see [decision-rules.md](references/decision-rules.md) row "HTTP"), not faked at the wrapper interface. Don't cite the existing fake as licence to add another one.
+
+### How to handle drift when you find it
+
+1. **Apply the methodology in the new code, regardless of what neighbours do.** New tests should be correct even when their neighbours aren't.
+2. **If the refactor is small, fix the existing tests in the same change.** Replacing one or two `Fake*ApiClient` files with HTTP interceptor registrations is often a single-digit-file change — pull it into the same PR rather than leaving the wrong shape in place.
+3. **If the refactor is large, flag the deviation and proceed with the methodology in the new code.** "Flag" means: a short comment in the new code or PR description pointing at this skill, plus a follow-up ticket so the deviation is tracked, not buried. Don't silently match the wrong shape just to look consistent — that buries the problem.
+
+### Drift to look out for
+
+- A fake implementing a typed HTTP/gRPC client interface (`Fake*ApiClient : I*ApiClient` whose production implementation owns an `HttpClient` or generated gRPC stub).
+- A `Mock<I*Service>` where the interface is an in-process collaborator.
+- A test project that re-implements the SUT's DI composition root rather than reusing it.
+- A shared singleton fake with no discriminator and no `[Collection]` serialisation.
+- Tests that construct the Lambda handler class directly (`new EntryPoint()`, `new Function()`) rather than driving the production entry point.
+
+These are drift, not the project's "house style".
+
 ## Decision tree: real vs. fake vs. intercept
 
 ```

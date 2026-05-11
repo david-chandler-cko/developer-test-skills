@@ -8,7 +8,7 @@ The .NET scaffolder skill (`dotnet-developer-tests`) ships templates for each pa
 
 **Shape.** One Lambda function as the entrypoint. Each test gets its own `TestScope` that owns its own `new Fake*()` fields. The DI graph is rebuilt per test because the Lambda test server is cheap to start (milliseconds). No discriminator needed.
 
-**Libraries.** xUnit v3, a Lambda test server (e.g., `MartinCostello.Testing.AwsLambdaTestServer`), an assertion library, no HTTP interception.
+**Libraries.** xUnit v3, a Lambda test server (e.g., `MartinCostello.Testing.AwsLambdaTestServer`), an assertion library. HTTP interception (`JustEat.HttpClientInterception`) is added when the Lambda makes outbound HTTP calls — per-test, no `AsyncLocal<>` accessor needed because each test rebuilds its own DI graph. gRPC interception works the same way at the `CallInvoker` level.
 
 **Key files.**
 - `Infrastructure/TestScope.cs` — fakes as instance properties; `InvokeFunction` orchestrates the Lambda test server.
@@ -78,7 +78,7 @@ The .NET scaffolder skill (`dotnet-developer-tests`) ships templates for each pa
 | Entrypoint | Lambda handler | Lambda handler | HTTP endpoint | HTTP endpoint | HTTP endpoint |
 | Host cost | Cheap (ms) | Cheap (ms) | Moderate | High | High |
 | Default isolation | Per-test instance (1) | Per-test instance (1) | Per-test instance (1) or discriminator (2) | Discriminator (2) | Discriminator (2) |
-| HTTP interception | Usually no | Usually no | Optional | Yes | Yes |
+| HTTP / gRPC interception | When Lambda calls out | When Lambda calls out | Optional | Yes | Yes |
 | Typical fake count | Few (≤5) | Few–medium | Few (≤10) | Many (>20) | Medium (10–20) |
 | Auth | None / fake | None / fake | API key or JWT | JWT + OAuth introspection | API key |
 

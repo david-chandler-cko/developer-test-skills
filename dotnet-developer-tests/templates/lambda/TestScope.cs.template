@@ -3,9 +3,11 @@ using System.Text;
 using Amazon.Lambda.{{EventNamespace}}; // e.g., KinesisEvents / SQSEvents / DynamoDBEvents
 using Amazon.Lambda.Serialization.SystemTextJson;
 using AwesomeAssertions;
+// using JustEat.HttpClientInterception; // uncomment if the Lambda makes outbound HTTP calls
 using MartinCostello.Logging.XUnit;
 using MartinCostello.Testing.AwsLambdaTestServer;
 using Microsoft.Extensions.DependencyInjection;
+// using Microsoft.Extensions.Http; // uncomment if the Lambda makes outbound HTTP calls
 using Microsoft.Extensions.Logging;
 using {{ServiceRootNamespace}}; // where the Lambda EntryPoint class lives
 using Xunit;
@@ -31,6 +33,15 @@ public sealed class TestScope : IDisposable, ITestOutputHelperAccessor
     public Fake{{Thing}}Publisher Fake{{Thing}}Publisher { get; } = new();
     // Add more fake properties here as the Lambda gains outbound dependencies, e.g.:
     // public FakeThingStore FakeThingStore { get; } = new();
+
+    // Uncomment if the Lambda makes outbound HTTP calls. Per-test instance, no AsyncLocal
+    // needed — the DI graph is rebuilt per test. Register responses on this in the scenario
+    // (see Infrastructure/Extensions/<Service>InterceptorExtensions.cs files; pattern in
+    // references/maintain-add-http-interception.md).
+    // public HttpClientInterceptorOptions HttpClientInterceptorOptions { get; } = new()
+    // {
+    //     ThrowOnMissingRegistration = true,
+    // };
 
     ITestOutputHelper? ITestOutputHelperAccessor.OutputHelper { get; set; }
 
@@ -117,6 +128,11 @@ public sealed class TestScope : IDisposable, ITestOutputHelperAccessor
         serviceCollection.AddSingleton<I{{Thing}}Publisher>(Fake{{Thing}}Publisher);
         // Repeat for each fake property:
         // serviceCollection.AddSingleton<IThingStore>(FakeThingStore);
+
+        // Uncomment to route every HttpClient through the per-test interceptor. Pair with the
+        // HttpClientInterceptorOptions property above and Infrastructure/HttpClientInterceptionFilter.cs.
+        // serviceCollection.AddSingleton<IHttpMessageHandlerBuilderFilter>(
+        //     new HttpClientInterceptionFilter(HttpClientInterceptorOptions));
 
         serviceCollectionModifications?.Invoke(serviceCollection);
         return serviceCollection;

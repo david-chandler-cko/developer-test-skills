@@ -69,6 +69,8 @@ Run through these when asked to review a project, or when adding to one that loo
 - [ ] `interceptorOptions.ThrowOnMissingRegistration = true` in the central interceptor setup.
 - [ ] Health checks and warmup tasks are disabled in the test host.
 - [ ] No `Mock<I...>` usages for in-process dependencies.
+- [ ] No fakes implementing typed HTTP/gRPC client interfaces (e.g., a `FakeFxRatesApiClient : IFxRatesApiClient` where the real implementation wraps `HttpClient`). HTTP → intercept; gRPC → intercept at the `CallInvoker`. See `outside-in-testing/references/decision-rules.md` rows "HTTP" and "gRPC".
+- [ ] Tests invoke the same entry point production runs. No `new EntryPoint()` / `new Function()` / `new LambdaEntryPoint()`; no Program.cs body re-implemented in the test project. For Lambda specifically, see `references/scaffold-lambda.md` "Match the production entry point".
 - [ ] Scenario classes are named `When<Situation>` and live under `Scenarios/` (or root for tiny Lambda projects).
 - [ ] Test data uses the builder pattern and/or AutoFixture. Prefer not to hardcode complex objects inline in the test method.
 - [ ] Do not share constants between tests for correlation IDs, tenant IDs, or any discriminator value — these should be generated per test or per test instance.
