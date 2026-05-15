@@ -1,11 +1,11 @@
 # developer-test-skills
 
-Two Claude Code skills for writing **outside-in black-box developer tests**:
+A Claude Code plugin bundling two skills for writing **outside-in black-box developer tests**:
 
 | Skill | Purpose |
 |---|---|
-| [`outside-in-testing`](outside-in-testing/SKILL.md) | Language-agnostic methodology: principles, decision rules, pitfalls. |
-| [`dotnet-developer-tests`](dotnet-developer-tests/SKILL.md) | .NET scaffolder: creates `*.Developer.Tests` projects, scenarios, fakes, and `httpclient-interception` setup. |
+| [`outside-in-testing`](skills/outside-in-testing/SKILL.md) | Language-agnostic methodology: principles, decision rules, pitfalls. |
+| [`dotnet-developer-tests`](skills/dotnet-developer-tests/SKILL.md) | .NET scaffolder: creates `*.Developer.Tests` projects, scenarios, fakes, and `httpclient-interception` setup. |
 
 The methodology in short: drive one service end-to-end through its real entrypoint (HTTP, Lambda, message consumer, port). In-process dependencies run for real, but anything that crosses an expensive boundary (a network call, database query, etc.) is replaced with a test double.
 
@@ -13,23 +13,23 @@ The approach is based on https://checkout.atlassian.net/wiki/spaces/MSE/pages/56
 
 ## Install
 
-Skills live in either `~/.claude/skills/` (available everywhere) or `<repo>/.claude/skills/` (scoped to one project).
+This repo is packaged as a Claude Code plugin. Install it from any Claude Code session:
 
-### Clone into your skills directory
-
-```sh
-# user-level (available in every project)
-git clone https://github.com/david-chandler-cko/developer-test-skills.git ~/.claude/skills/developer-test-skills
-
-# OR project-level (only this repo)
-git clone https://github.com/david-chandler-cko/developer-test-skills.git .claude/skills/developer-test-skills
+```
+/plugin marketplace add david-chandler-cko/developer-test-skills
+/plugin install developer-test-skills@developer-test-skills
 ```
 
-Claude Code discovers any `SKILL.md` under `skills/` recursively, so the nested layout works as-is — no symlinks needed.
+The first command registers the marketplace defined in `.claude-plugin/marketplace.json`; the second installs the plugin (`<plugin>@<marketplace>`). Both skills are auto-discovered from `skills/` on activation.
 
 ### Verify
 
-Start a Claude Code session and run `/skills` (or look for the skills in the session's available-skills list). Both skill names should appear.
+In the same session, look for the skills in the available-skills list. You should see:
+
+- `developer-test-skills:outside-in-testing`
+- `developer-test-skills:dotnet-developer-tests`
+
+(Skills installed via a plugin are namespaced as `<plugin>:<skill>`.)
 
 ## Use
 

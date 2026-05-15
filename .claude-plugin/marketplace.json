@@ -1,0 +1,14 @@
+{
+    "name": "developer-test-skills",
+    "owner": {
+      "name": "David Chandler"
+    },
+    "description": "Outside-in developer testing skills (language-agnostic methodology + .NET scaffolder).",
+    "plugins": [
+      {
+        "name": "developer-test-skills",
+        "source": "./",
+        "description": "Outside-in black-box developer testing: language-agnostic methodology plus a .NET scaffolder."
+      }
+    ]
+  }

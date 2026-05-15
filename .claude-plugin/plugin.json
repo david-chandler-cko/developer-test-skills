@@ -1,0 +1,8 @@
+{
+  "name": "developer-test-skills",
+  "description": "Outside-in black-box developer testing: language-agnostic methodology plus a .NET scaffolder.",
+  "version": "0.1.0",
+  "author": {
+    "name": "David Chandler"
+  }
+}
