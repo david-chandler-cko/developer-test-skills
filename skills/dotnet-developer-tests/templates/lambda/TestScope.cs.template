@@ -73,8 +73,12 @@ public sealed class TestScope : IDisposable, ITestOutputHelperAccessor
         var testContext = await testServer.EnqueueAsync(inputJson);
         StopServerWhenResponseIsAvailable(testContext, cancellationTokenSource);
 
+        // Drives the same RunAsync overload production's Main calls — see references/scaffold-lambda.md "Shape A".
+        // testServerClient: the in-memory Lambda Runtime API; non-null only in tests.
+        // modifyServices: registers fakes against the real interfaces. Sole seam tests use to swap deps.
+        // modifyHostBuilder: only needed if a test must override host-level configuration; usually null.
         await {{EntrypointType}}.RunAsync(
-            testServer.CreateClient(),
+            testServerClient: testServer.CreateClient(),
             modifyServices: services => ModifyServices(services, serviceCollectionModifications),
             cancellationToken: cancellationTokenSource.Token);
 

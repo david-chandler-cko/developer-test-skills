@@ -6,7 +6,7 @@ Each entry: **symptom** → **cause** → **fix**.
 
 ### Fake singleton pollution (shared-singleton strategies only)
 **Symptom.** Tests pass individually, fail in parallel. A fake returns data seeded by another test.
-**Cause.** Fakes are registered as singletons but partition state by nothing (or by a value that multiple tests share, like a fixed merchant ID).
+**Cause.** Fakes are registered as singletons but partition state by nothing (or by a value that multiple tests share, like a fixed tenant ID).
 **Fix.** Partition by a per-test discriminator the service propagates (correlation ID, request ID). If no such value exists, move the fake to per-test-instance (strategy 1) or serialise tests with a `[Collection]`.
 
 ---
@@ -102,6 +102,20 @@ services.Remove(warmup);
 **Symptom.** A "fake" that contains if/else business logic, or a test that only passes because its mock's `Verify` call was set up identically to the implementation.
 **Cause.** Someone reached for Moq where a fake would do, or grew logic into a fake over time.
 **Fix.** Fakes are dumb stores: seed, read, return. If you need "when X is called, assert it was called with Y", usually you can fake the dependency as a store, let the real code write to it, and query the store afterwards.
+
+---
+
+### Asserting on fake call counts
+**Symptom.** Test bodies contain `fake.GetCallCount.Should().Be(1)`, `fake.QueryCount.Should().BeGreaterThan(0)`, or any assertion against a `CallCount` / `Invocations` / `LastInvokedWith` field on a fake. Tests start failing when an unrelated change introduces caching, batching, retries, or a parallel pre-fetch — even though the observable behaviour is unchanged.
+**Cause.** The test is asserting on the handler's *implementation* (how many times it consults a dependency) rather than its *contract* (what the entrypoint returns and what side effects it produces). Counters on fakes are seductive but they couple the test to internals that should be free to change.
+**Fix.** Assert on one of three things instead, in order of preference:
+1. **The response** — status code, body shape, content. If the handler had to query the repository, the response containing the looked-up data already proves it.
+2. **Data the fake stored** — records the production code *wrote through* the fake (publishes, inserts, updates). That's data passing through the boundary, not call frequency.
+3. **HTTP-interceptor recorded calls** — for outbound HTTP/gRPC verification, the interceptor's request log is observable behaviour (the wire), not implementation (the call shape inside the handler).
+
+If the fake already exposes a counter, treat that as a smell to fix when you next touch the fake — remove the counter, or at minimum don't assert on it from new tests. A counter that exists only for tests is a mock wearing fake's clothing.
+
+**Exception.** Performance-sensitive paths where N+1 queries or cache misses are part of the contract (e.g., "the handler must batch into a single query"). In that case the call count *is* the observable. Document it explicitly in the test name (`ShouldQueryRepositoryExactlyOnce_ToAvoidN1`) so reviewers see the intent.
 
 ---
 

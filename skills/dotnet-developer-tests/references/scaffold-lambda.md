@@ -4,7 +4,7 @@ Matches Pattern A in the methodology skill's `examples/example-patterns.md` (xUn
 
 ## Assumptions
 
-- The Lambda exposes a static `RunAsync(HttpClient, Action<IServiceCollection>?, CancellationToken)` method that production also calls — the same composition root, no second wiring path. If the service uses a different hosting shape (top-level `Program.cs`, `Amazon.Lambda.Annotations`, plain `FunctionHandler` class), follow [Match the production entry point](#match-the-production-entry-point) before continuing.
+- The Lambda exposes a **public** static `RunAsync(HttpClient? testServerClient = null, Action<IHostBuilder>? modifyHostBuilder = null, Action<IServiceCollection>? modifyServices = null, CancellationToken cancellationToken = default)` method that production also calls — the same composition root, no second wiring path. If the service uses a different hosting shape (top-level `Program.cs`, `Amazon.Lambda.Annotations`, plain `FunctionHandler` class), or if production currently has only a `Main` method, follow [Match the production entry point](#match-the-production-entry-point) before continuing — **adding this overload to production is part of the scaffold, not optional.**
 - Fakes are per-test-instance (strategy 1). Each test gets its own `TestScope`, which owns its own `new Fake*()` fields. No discriminator, no shared state.
 - `AwesomeAssertions` for assertions.
 
@@ -14,67 +14,71 @@ Matches Pattern A in the methodology skill's `examples/example-patterns.md` (xUn
 
 The fix: have **one** composition root that production and tests both call. Below, "EntryPoint" is whatever class the service uses to do the wiring.
 
-### Shape A — class with static `RunAsync` (template default)
+### Canonical shape — class with public static `RunAsync` (template default)
+
+The same `RunAsync` is called from production (via `Main`) and from the test (via `TestScope.InvokeFunction`). Every parameter is optional with a default so `Main` can call it argument-less, and tests pick exactly the seams they need.
 
 ```csharp
-public class EntryPoint
+public class EntryPoint // or Program — whichever name your service already uses
 {
-    public static Task RunAsync(
-        HttpClient handler,
-        Action<IServiceCollection>? modifyServices,
-        CancellationToken cancellationToken)
+    public static async Task RunAsync(
+        HttpClient? testServerClient = null,
+        Action<IHostBuilder>? modifyHostBuilder = null,
+        Action<IServiceCollection>? modifyServices = null,
+        CancellationToken cancellationToken = default)
     {
-        var services = new ServiceCollection();
-        ConfigureServices(services);
-        modifyServices?.Invoke(services);
-        // build the LambdaBootstrap using `handler` and `services`, then RunAsync it
+        var hostBuilder = Host.CreateDefaultBuilder()
+            .ConfigureServices((ctx, services) =>
+            {
+                ConfigureServices(ctx, services);
+                modifyServices?.Invoke(services);
+            });
+
+        modifyHostBuilder?.Invoke(hostBuilder);
+
+        using var host = hostBuilder.Build();
+
+        var handlerWrapper = HandlerWrapper.GetHandlerWrapper<TEvent, TResponse>(
+            host.Services.GetRequiredService<MyFunctionHandler>().Handle,
+            new DefaultLambdaJsonSerializer());
+
+        var bootstrap = testServerClient is null
+            ? LambdaBootstrapBuilder.Create(handlerWrapper).Build()
+            : LambdaBootstrapBuilder.Create(handlerWrapper).UseHttpHandler(testServerClient).Build();
+
+        await bootstrap.RunAsync(cancellationToken);
     }
 
-    public static Task Main() => RunAsync(new HttpClient(), modifyServices: null, CancellationToken.None);
+    public static Task Main() => RunAsync();
 }
 ```
 
-Production hits `Main`; tests hit `RunAsync` directly with the test server's `HttpClient`. The shipped `TestScope.cs.template` is built around this. Nothing further to do.
+**Why these specific parameters.**
 
-### Shape B — top-level `Program.cs` (modern minimal Lambda)
+- `testServerClient` (nullable): the `HttpClient` from `LambdaTestServer.CreateClient()`. Production passes nothing and the real Lambda runtime is used; tests pass the test server's client so the Lambda bootstrap talks to the in-memory server instead of the real Lambda Runtime API.
+- `modifyHostBuilder`: lets a test swap out host-level configuration (`ConfigureAppConfiguration`, custom logging providers, environment) that the service genuinely uses. Skipped 90% of the time — but when you need it, retrofitting it later is invasive.
+- `modifyServices`: the seam tests use to swap real dependencies for fakes. Mandatory.
+- `cancellationToken`: lets the test server shut the function down once the response is enqueued.
 
-```csharp
-// Program.cs
-var serializer = new DefaultLambdaJsonSerializer();
-Func<MyEvent, ILambdaContext, Task> handler = async (evt, ctx) => { /* ... */ };
-await LambdaBootstrapBuilder.Create(handler, serializer).Build().RunAsync();
-```
+Production hits `Main` (no args, defaults take over). Tests hit `RunAsync` with the test server's `HttpClient` and a `modifyServices` action that registers fakes. The shipped `TestScope.cs.template` is built around this signature. Nothing further to do.
 
-Top-level statements compile into an internal `Program.<Main>$()` that tests can't call. **Refactor** Program.cs to delegate to a real `EntryPoint.RunAsync(...)` with the signature in Shape A; Program.cs's body becomes one call to it. Then proceed exactly as Shape A.
+### Anything else — top-level `Program.cs`, plain `FunctionHandler` class, `Amazon.Lambda.Annotations`
 
-Don't extract the handler delegate or its enclosing class into the test directly — that loses the `LambdaBootstrapBuilder` and serializer registration that production relies on.
+Each of these starts with production owning a bootstrap path the test can't reach: top-level statements compile to an inaccessible `Program.<Main>$()`; an older `Function.FunctionHandler` is invoked by `Amazon.Lambda.RuntimeSupport` directly; annotations-generated code exposes a static method but no `modifyServices` seam.
 
-### Shape C — `Amazon.Lambda.Annotations`
+**Refactor to the canonical shape.** Extract the DI wiring into a `ConfigureServices`, add a `RunAsync` overload with the canonical signature, and have the existing entry point (`Main`, the annotations adapter, or `FunctionHandler`) become a thin call into it. Tests are the right forcing function for this change.
 
-The source generator emits a `*_Generated.cs` file with a static method per `[LambdaFunction]`-annotated method, plus a generated `Startup` class. Production runs that generated entry point.
-
-Drive the generated entry method, not the user-authored function class. If its signature doesn't match `RunAsync(HttpClient, Action<IServiceCollection>?, CancellationToken)`, add a thin `EntryPoint.RunAsync` adapter that calls the generated bootstrap and threads `modifyServices` into the Startup's service collection. Production's `Main` and the test both call the adapter — same wiring, single source of truth. Then proceed as Shape A.
-
-### Shape D — plain `FunctionHandler` class (no exposed bootstrap)
-
-Older shape:
-
-```csharp
-public class Function
-{
-    public Task<MyResponse> FunctionHandler(MyEvent evt, ILambdaContext ctx) { /* ... */ }
-}
-```
-
-Production runs this via `Amazon.Lambda.RuntimeSupport`'s default bootstrap. Don't `new Function()` and call `FunctionHandler` directly from the test — its constructor (or field initialisers) usually do their own one-off DI setup that diverges from the runtime path.
-
-Refactor to Shape A or Shape C. The change is small (extract the DI setup into `ConfigureServices`, add a `RunAsync` that wires it into `LambdaBootstrap`, leave `FunctionHandler` as a thin dispatcher), and tests are the right forcing function for it.
+Don't extract the handler class into the test directly — that loses the `LambdaBootstrapBuilder` and serializer registration production relies on. Don't `new Function()` either — its constructor/field initialisers usually do one-off DI setup that diverges from the runtime path.
 
 ### Anti-patterns to flag in review
 
-- Tests that construct the handler class directly (`new EntryPoint()`, `new Function()`, `new LambdaEntryPoint()`). The test is driving a parallel entry point production never executes.
-- A test project whose `TestScope` re-implements the service's DI graph (calls `services.AddSingleton<IFoo, Foo>()` for the SUT's own types). The SUT's composition root must be reused, not duplicated.
-- Production `Program.cs` body copy-pasted into the test project. Same problem — two wirings, eventual drift.
+All of these create a second composition root that production never executes — the test passes (or fails) on a wiring that diverges from prod the moment either side drifts.
+
+- Constructing the handler class directly (`new EntryPoint()`, `new Function()`, `new LambdaEntryPoint()`).
+- `TestScope` re-registering the SUT's own types (`services.AddSingleton<IFoo, Foo>()`) instead of reusing the SUT's composition root.
+- Production `Program.cs` body copy-pasted into the test project.
+- `[assembly: InternalsVisibleTo("…Tests")]` on production so a `TestStartup : Startup` subclass can reach in. The fix is to make the seam public on production (`RunAsync` with optional parameters), not to widen production's surface for tests.
+- A test project calling `LambdaBootstrapBuilder.Create(...).Build().RunAsync(...)` itself. Add the `RunAsync` overload to production and have the test call it.
 
 ## Files to create
 
@@ -163,7 +167,7 @@ Because each Lambda test rebuilds its own DI graph (isolation strategy 1), the i
 6. **In each scenario, register the responses the SUT should see** before invoking the function:
 
    ```csharp
-   _testScope.HttpClientInterceptorOptions.RegisterSuccessfulFxRateLookup("USD", "EUR", rate: 0.92m);
+   _testScope.HttpClientInterceptorOptions.RegisterSuccessfulPricingLookup(productId: "abc", price: 4.99m);
    await _testScope.InvokeFunction(triggerEvent);
    ```
 
@@ -176,11 +180,11 @@ Because each Lambda test rebuilds its own DI graph (isolation strategy 1), the i
 2. **Don't fake the generated client.** Instead, register a test `CallInvoker` (or a `GrpcChannel` whose handler short-circuits) for the typed client in `ModifyServices`:
 
    ```csharp
-   public FakeGrpcCallInvoker FxRatesInvoker { get; } = new();
+   public FakeGrpcCallInvoker PricingInvoker { get; } = new();
 
    // in ModifyServices:
-   serviceCollection.AddSingleton<FxRates.FxRatesClient>(
-       _ => new FxRates.FxRatesClient(FxRatesInvoker));
+   serviceCollection.AddSingleton<Pricing.PricingClient>(
+       _ => new Pricing.PricingClient(PricingInvoker));
    ```
 
    `FakeGrpcCallInvoker` is a thin `CallInvoker` subclass under your control — it records requests and returns canned `AsyncUnaryCall<T>` / `AsyncServerStreamingCall<T>` / etc. responses. Tests seed it the same way HTTP tests register interceptor responses.
@@ -207,4 +211,4 @@ Create these when the third or fourth scenario starts copy-pasting the same setu
 - `Debugger.IsAttached ? Timeout.InfiniteTimeSpan : TimeSpan.FromSeconds(5)` — OK locally, leaks in CI if the agent attaches a debugger. Usually fine; note it.
 - The Lambda test server starts and stops per invocation. Do not try to share it across tests — it's cheap.
 - Don't forget to call `_testScope.Dispose()` — the scenario class should implement `IDisposable` and delegate.
-- **Don't fake a typed HTTP/gRPC client interface.** If you see `IFxRatesApiClient`, `IPricingClient`, or any `I*Client` whose implementation owns an `HttpClient` or a generated gRPC stub, intercept at the transport per the [outbound HTTP / gRPC variant](#variant-outbound-http--grpc). Faking the wrapper bypasses serialisation, auth, retry, and `BaseAddress` — which is exactly the path you want the test to exercise.
+- **Don't fake a typed HTTP/gRPC client interface.** If you see any `I*Client` whose implementation owns an `HttpClient` or a generated gRPC stub, intercept at the transport per the [outbound HTTP / gRPC variant](#variant-outbound-http--grpc). Faking the wrapper bypasses serialisation, auth, retry, and `BaseAddress` — which is exactly the path you want the test to exercise.

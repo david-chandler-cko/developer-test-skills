@@ -1,6 +1,6 @@
 # Glossary
 
-**Entrypoint.** The outermost code path the test drives: HTTP endpoint (`POST /payments`), Lambda handler (`FunctionHandler`), message consumer (`HandleAsync(SQSEvent)`), or generic port (`ICommandHandler<T>.Handle`).
+**Entrypoint.** The outermost code path the test drives: HTTP endpoint (`POST /orders`), Lambda handler (`FunctionHandler`), message consumer (`HandleAsync(SQSEvent)`), or generic port (`ICommandHandler<T>.Handle`).
 
 **TestScope.** Per-test object that holds the state and fakes for one scenario. Constructed by a fixture or factory. Usually `IDisposable`. Provides methods to invoke the entrypoint and query fake state.
 
@@ -20,7 +20,7 @@
 
 **Discriminator.** More general term for the value a shared-singleton fake uses to partition state. Usually a correlation ID. Can be any unique, per-test, service-propagated value — tenant ID, request ID, etc.
 
-**Port / adapter.** Hexagonal/ports-and-adapters architecture. A *port* is the application-level interface (e.g., `ICommandHandler<CreatePayment>`); an *adapter* is the transport-specific wiring (HTTP controller, Lambda handler). Tests can target the port directly when the adapter is a thin shell.
+**Port / adapter.** Hexagonal/ports-and-adapters architecture. A *port* is the application-level interface (e.g., `ICommandHandler<CreateOrder>`); an *adapter* is the transport-specific wiring (HTTP controller, Lambda handler). Tests can target the port directly when the adapter is a thin shell.
 
 **In-memory test server.** ASP.NET `TestServer` (via `WebApplicationFactory`) or `MartinCostello.Testing.AwsLambdaTestServer`. Runs the service in-process; the test client calls via `HttpMessageHandler` without opening a real socket.
 

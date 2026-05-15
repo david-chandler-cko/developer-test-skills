@@ -7,9 +7,9 @@
 | Runs in the same process (validators, domain services, mappers) | **Real** | Mocking hides real wiring bugs. |
 | Talks HTTP to an external service | **Intercept** (httpclient-interception) | Exercises the real outbound HTTP path; test controls the response. |
 | Talks gRPC to an external service | **Intercept** (gRPC interceptor) | Same reason, same level. |
-| Uses an AWS SDK client (SNS, SQS, DynamoDB, S3, Kinesis) | **Fake** the client interface | AWS SDK types are hard to intercept cleanly. The service should depend on a thin interface (`ISnsPublisher`), which is trivial to fake. |
+| Uses an AWS SDK client (SNS, SQS, DynamoDB, S3, Kinesis) | **Fake** the client interface | AWS SDK types are hard to intercept cleanly. The service should depend on a thin interface (e.g. `IEventPublisher`), which is trivial to fake. |
 | Uses a database directly | **Fake repository** OR **Testcontainers** | Fake is faster; Testcontainers catches SQL/schema bugs. Use Testcontainers when the DB behaviour (transactions, queries, migrations) is part of what you want to test. |
-| Reads feature flags (LaunchDarkly, etc.) | **Fake client** | Return deterministic values; seed per test. |
+| Reads feature flags | **Fake client** | Return deterministic values; seed per test. |
 | Validates JWTs | **Fake issuer + signing key** | Register the fake issuer's key in the test host's JWT config; mint real tokens in tests. |
 
 ## Fake vs. Testcontainers for DBs
@@ -28,74 +28,34 @@ Both approaches are valid for the same underlying dependency — different cost/
 
 ## Isolation strategies
 
-When multiple tests run in parallel and touch the same code, their state must not mix. Three strategies, in order of preference:
+Three strategies in preference order (see SKILL.md for the short version). Detail here on the non-trivial one:
 
-### 1. Per-test fake instances (preferred)
+**1. Per-test fake instances** — each `TestScope` constructs `new Fake*()` fields. Best for Lambdas and small APIs where the host is cheap to rebuild.
 
-Each `TestScope` creates its own fakes in its constructor.
-
-```csharp
-public sealed class TestScope : IDisposable
-{
-    public FakeThingStore FakeThingStore { get; } = new();
-    // Register in the host DI when invoking the entrypoint — one DI container per test.
-}
-```
-
-No discriminator needed. Best for:
-- Lambdas (the test server is cheap, so a fresh DI graph per test is fine).
-- Small APIs where you can rebuild the host per test.
-
-Downsides:
-- Expensive hosts (AlbaHost, full TestServer) shouldn't be rebuilt every test.
-
-### 2. Shared singleton fakes keyed by a discriminator
-
-Fakes registered once as singletons. They partition state by a per-test value the service propagates through the call chain.
+**2. Shared singleton fakes keyed by a discriminator** — required when the host is shared across tests (`AlbaHost`, class-fixture `TestServer`) and re-registering fakes per-test is awkward.
 
 ```csharp
-public sealed class FakeSnsPublisher : ISnsPublisher
+public sealed class FakeEventPublisher : IEventPublisher
 {
-    private readonly ConcurrentDictionary<string, List<SnsMessage>> _byCorrelationId = new();
+    private readonly ConcurrentDictionary<string, List<Event>> _byCorrelationId = new();
 
-    public Task PublishAsync(SnsMessage msg, CancellationToken ct)
+    public Task PublishAsync(Event evt, CancellationToken ct)
     {
-        var list = _byCorrelationId.GetOrAdd(msg.CorrelationId, _ => new List<SnsMessage>());
-        lock (list) { list.Add(msg); }
+        var list = _byCorrelationId.GetOrAdd(evt.CorrelationId, _ => new List<Event>());
+        lock (list) { list.Add(evt); }
         return Task.CompletedTask;
     }
 
-    public IReadOnlyList<SnsMessage> GetMessages(string correlationId) =>
+    public IReadOnlyList<Event> GetPublished(string correlationId) =>
         _byCorrelationId.TryGetValue(correlationId, out var list)
             ? list.ToArray()
-            : Array.Empty<SnsMessage>();
+            : Array.Empty<Event>();
 }
 ```
 
-Required when:
-- The host is shared across tests (one AlbaHost for the assembly, one TestServer with `IClassFixture`).
-- Fakes are composed into the real DI graph, so re-registering per-test is awkward.
+The discriminator must be unique per test (`Guid.NewGuid()` is fine) and propagated by the service into every call the fake intercepts. If the service reads correlation ID from a header, the test must set that header; if the service uses `Activity.Current.Id`, the fake must read that. `ThrowOnMissingRegistration` and similar fail-fast flags help catch propagation gaps.
 
-The discriminator can be anything, but:
-- It must be unique per test (`Guid.NewGuid()` is fine).
-- It must be propagated by the service into every call the fake intercepts. If the service reads a correlation ID from HTTP headers, the test must set that header. If the service uses `Activity.Current.Id`, the fake must read that.
-- `ThrowOnMissingRegistration` and similar fail-fast flags help catch gaps.
-
-### 3. Shared singleton fakes + `[Collection]` serialisation (fallback)
-
-```csharp
-[CollectionDefinition(ConfigurationCollection.Name)]
-public class ConfigurationCollection : ICollectionFixture<ConfigurationApiFixture> { public const string Name = "config"; }
-
-[Collection(ConfigurationCollection.Name)]
-public class WhenRetrievingSomething { /* ... */ }
-```
-
-All tests in the same collection run serially, so shared-state fakes don't collide. Use only when:
-- The host cost forces shared fakes AND
-- No discriminator is available (no correlation ID flows through, or the fake gets called outside the request context).
-
-Slows the suite down. Not scalable. Keep the collection scope small.
+**3. Shared singletons + `[Collection]` serialisation** — fallback when 1 and 2 don't fit. Tests in the same collection run serially. Slows the suite; keep the collection scope small.
 
 ## Shared vs. per-test fixture
 
@@ -112,6 +72,22 @@ Shared fixture ≠ shared state. Even with a shared fixture, each test should ge
 - **OAuth/JWT**: spin up a fake issuer (in-memory `OpenIdConnectConfiguration` with a known signing key). Tests mint tokens with whatever claims the scenario needs. No real IDP calls. A typical `FakeTokenIssuer` exposes a static `Issuer`, a `SecurityKey`, and a `CreateToken(claims)` helper.
 - **API keys**: generate random GUIDs at fixture init; configure the app to accept them; pass them in request headers via a scenario-builder extension (`WithApiKey`).
 - **Bypass entirely**: valid for tests that don't exercise auth, but make it explicit — register a test authentication handler that accepts everything, don't just remove the middleware.
+
+## Production configuration tables are a test-case source
+
+If the production code under test contains a static table — a `Dictionary<>`, an `ImmutableArray<>` of rule records, a `switch` over a composite key, a list initialised at startup from config — **generate one `[Theory]` row (or one `[Fact]`) per entry that distinguishably affects behaviour**. The rule matrix is the spec; a single happy-path test covers row zero and silently ignores the rest.
+
+**Signals that say "table-driven":**
+- A `static readonly` collection of records / tuples / objects, indexed by enums or strings.
+- A `switch` expression on a composite key (e.g., `(Tier, Region, ResourceType)`).
+- A config section deserialised into a list of rules at startup.
+- Constants named like `…Rule`, `…Limit`, `…Threshold`, `…Bucket`, `…Bracket`.
+
+**What to generate.** Prefer `[Theory]` with `[InlineData]` when rows differ only in inputs and expected outputs are mechanically derivable. Fall back to one `[Fact]` per row when each case needs distinct setup or distinct assertions.
+
+**Boundary rows matter.** For each numeric field (limits, thresholds), generate the at-limit and just-over-limit cases — that's where the table's behaviour actually changes.
+
+**Row coverage ≠ code coverage.** Coverage tools say row 7's line was hit because the dispatcher hit it. They can't see that the test never asserted row 7's distinguishing output.
 
 ## Ports-and-adapters entrypoint
 

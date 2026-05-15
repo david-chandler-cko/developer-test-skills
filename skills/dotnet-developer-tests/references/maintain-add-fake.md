@@ -7,7 +7,9 @@
 
 ## Checklist
 
-1. **Find the real interface.** In `src/`, grep for `I<Name>Repository`, `I<Name>Store`, `I<Name>Client`, `I<Name>Publisher`, or the SDK interface (`IAmazonSQS`, etc.). The service should already depend on the interface — if it depends on a concrete AWS SDK type directly, wrap it in a thin interface first.
+1. **Find the real interface(s).** In `src/`, grep for `I<Name>Repository`, `I<Name>Store`, `I<Name>Client`, `I<Name>Publisher`, or the SDK interface (`IAmazonSQS`, etc.). The service should already depend on the interface — if it depends on a concrete AWS SDK type directly, wrap it in a thin interface first.
+
+   **Check for CQRS-style pairs.** If you find `IQuery<T>` and `IStore<T>` (or `IRead<T>` / `IWrite<T>`, or `IGet<T>` / `ISave<T>`) for the same underlying entity, **treat them as one fake implementing both interfaces** — see [Pair CQRS interfaces](#pair-cqrs-interfaces) below before continuing.
 
 2. **Determine the project's isolation strategy.** Inspect an existing fake in `Infrastructure/Fakes/` (or `Infrastructure/` for smaller projects). Two signatures to look for:
    - **Per-test-instance** (strategy 1): plain `Dictionary<>`/`List<>`, seed/query methods take no discriminator.
@@ -90,8 +92,56 @@ public sealed class FakeThingPublisher : IThingPublisher
    - No `if`/`else` business logic beyond "seed + read".
    - For strategy 2: the fake reads the discriminator from the same place the service writes it (request header → context item → propagated value).
 
+## Pair CQRS interfaces
+
+When production splits a single underlying repository into a read interface and a write interface — `IQueryOrders` / `IStoreOrders`, `IReadCustomer` / `IWriteCustomer`, `IGet<T>` / `ISave<T>` — **the fake should implement both interfaces and be registered against both, as a single shared instance**. The in-memory store is the source of truth; both interfaces are views over it.
+
+```csharp
+public sealed class FakeOrderRepository : IQueryOrders, IStoreOrders
+{
+    private readonly Dictionary<string, Order> _orders = new();
+
+    public Task SaveAsync(Order order, CancellationToken ct)
+    {
+        _orders[order.Id] = order;
+        return Task.CompletedTask;
+    }
+
+    public Task<Order?> GetByIdAsync(string id, CancellationToken ct)
+    {
+        _orders.TryGetValue(id, out var o);
+        return Task.FromResult(o);
+    }
+}
+```
+
+Register **the same instance** against both interfaces — never `new FakeOrderRepository()` twice:
+
+```csharp
+// Lambda (per-test-instance) — in TestScope:
+public FakeOrderRepository OrderRepository { get; } = new();
+
+// in ModifyServices:
+services.AddSingleton<IQueryOrders>(OrderRepository);
+services.AddSingleton<IStoreOrders>(OrderRepository);
+```
+
+```csharp
+// WAF / Xunit.DI / Alba — in ConfigureTestServices (per-instance pattern):
+services.RemoveAll<IQueryOrders>();
+services.RemoveAll<IStoreOrders>();
+services.AddSingleton<FakeOrderRepository>();
+services.AddSingleton<IQueryOrders>(sp => sp.GetRequiredService<FakeOrderRepository>());
+services.AddSingleton<IStoreOrders>(sp => sp.GetRequiredService<FakeOrderRepository>());
+```
+
+**Why this matters.** Two fakes for one underlying store splits state across two halves, so a scenario that seeds via `IStore` and asserts via `IQuery` silently asserts on the wrong store. The write/read round-trip the handler actually performs goes unverified.
+
+**When to skip the pair.** If the two interfaces back genuinely different stores in production (e.g., read replica vs. write DB, confirmed by different concrete classes against different connection strings), they're separate dependencies — two fakes is correct.
+
 ## Gotchas
 
 - **Service depends on a concrete AWS SDK type** (`AmazonSQSClient`, not `IAmazonSQS`): introduce the interface first. Fakes can't substitute concrete types.
 - **Fake needs to generate IDs** (new entity identifiers): seed the IDs from the test, or inject a fake `IIdFactory` / `IClock` the test controls.
 - **Fake "forgets" data between calls** in strategy 2: you're probably keying by a value the service doesn't propagate. Put a `Debug.WriteLine` in the fake's write and read paths with the discriminator value and compare.
+- **You only faked one half of a CQRS pair** (`FakeQueryOrders : IQueryOrders` with no matching `IStoreOrders` fake): a single fake should implement both interfaces. See [Pair CQRS interfaces](#pair-cqrs-interfaces).

@@ -66,7 +66,7 @@ Scenarios/
    ```csharp
    public static Scenario WithApiKey(this Scenario scenario, string apiKey) => scenario.WithRequestHeader("Authorization", apiKey);
    public static Scenario WithCorrelationId(this Scenario scenario, string id) => scenario.WithRequestHeader("X-Correlation-Id", id);
-   public static Scenario SendCreatePayment(this Scenario scenario, CreatePaymentRequest req) => scenario.Post.Json(req).ToUrl("/payments");
+   public static Scenario SendCreateOrder(this Scenario scenario, CreateOrderRequest req) => scenario.Post.Json(req).ToUrl("/orders");
    ```
 
 4. **Fakes** — singletons in the `AlbaHost` DI graph. Keyed by correlation ID (strategy 2).

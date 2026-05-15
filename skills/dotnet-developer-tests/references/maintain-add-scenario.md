@@ -2,7 +2,7 @@
 
 ## Naming
 
-- Class name: `When<ThingHappens>` (e.g., `WhenARefundIsRequestedWithoutAMatchingPayment`).
+- Class name: `When<ThingHappens>` (e.g., `WhenAnOrderIsCreatedWithoutABillingAddress`).
 - File path: `Scenarios/<Area>/When<ThingHappens>.cs` for organised projects; root for tiny Lambda projects.
 - Assertion methods: `Then<Assertion>()` or `Should<Behaviour>()` — pick one convention and use it consistently across the project.
 
@@ -85,6 +85,22 @@ public class WhenSomethingHappens : IClassFixture<LambdaTestServerFixture>, IDis
 1. **Arrange**: seed fakes, configure HTTP interceptor overrides, build the request.
 2. **Act**: invoke the entrypoint via the TestScope (`_testScope.Scenario(...)`, `_testScope.InvokeFunction(...)`, `apiClient.DoX(...)`).
 3. **Assert**: check the response, query the fakes, check the recorded HTTP requests.
+
+## Look for table-driven production code before writing a single `[Fact]`
+
+If the handler dispatches behaviour off a static rule table (a `Dictionary<>`, an immutable list of records, a `switch` over a composite key, a deserialised config section), generate one `[Theory]` row — or one `[Fact]` — **per row that distinguishably affects behaviour**, not a single happy-path test. The matrix is the spec.
+
+```csharp
+[Theory]
+[InlineData("free",  "US", "compute", 10,   false)]  // under-limit
+[InlineData("free",  "US", "compute", 11,   true)]   // just-over
+[InlineData("pro",   "EU", "compute", 1000, false)]
+[InlineData("pro",   "*",  "storage", 100,  true)]
+// ...one row per distinguishable rule
+public async Task ShouldEnforceQuota(string tier, string region, string resource, int amount, bool rejected) { ... }
+```
+
+Prefer `[InlineData]` when rows differ only in inputs and the expected output is mechanically derivable; fall back to one `[Fact]` per row when each case has distinct setup or distinct assertions. For numeric fields, generate **at-limit and just-over-limit** rows. See `outside-in-testing/references/decision-rules.md` "Production configuration tables are a test-case source".
 
 ## Checklist before committing
 

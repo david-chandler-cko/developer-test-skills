@@ -69,12 +69,15 @@ Run through these when asked to review a project, or when adding to one that loo
 - [ ] `interceptorOptions.ThrowOnMissingRegistration = true` in the central interceptor setup.
 - [ ] Health checks and warmup tasks are disabled in the test host.
 - [ ] No `Mock<I...>` usages for in-process dependencies.
-- [ ] No fakes implementing typed HTTP/gRPC client interfaces (e.g., a `FakeFxRatesApiClient : IFxRatesApiClient` where the real implementation wraps `HttpClient`). HTTP → intercept; gRPC → intercept at the `CallInvoker`. See `outside-in-testing/references/decision-rules.md` rows "HTTP" and "gRPC".
+- [ ] No fakes implementing typed HTTP/gRPC client interfaces (e.g., a `FakeBillingApiClient : IBillingApiClient` where the real implementation wraps `HttpClient`). HTTP → intercept; gRPC → intercept at the `CallInvoker`. See `outside-in-testing/references/decision-rules.md` rows "HTTP" and "gRPC".
 - [ ] Tests invoke the same entry point production runs. No `new EntryPoint()` / `new Function()` / `new LambdaEntryPoint()`; no Program.cs body re-implemented in the test project. For Lambda specifically, see `references/scaffold-lambda.md` "Match the production entry point".
 - [ ] Scenario classes are named `When<Situation>` and live under `Scenarios/` (or root for tiny Lambda projects).
 - [ ] Test data uses the builder pattern and/or AutoFixture. Prefer not to hardcode complex objects inline in the test method.
 - [ ] Do not share constants between tests for correlation IDs, tenant IDs, or any discriminator value — these should be generated per test or per test instance.
-- [ ] When generating fake ID strings, inspect the code for any packages that they use and conform to the format (e.g., if the service uses `Ulid`, generate ULIDs in the fake; if it uses `Guid.NewGuid()`, generate GUIDs; If it uses an internal identifier package, use that).
+- [ ] Fake-generated ID strings match the format the service uses in production (ULID, GUID, internal identifier package). Inspect `src/` for the existing pattern before inventing one.
+- [ ] CQRS interface pairs share a single fake. When production splits `IQuery<Thing>` / `IStore<Thing>` (or `IRead<Thing>` / `IWrite<Thing>`), one `Fake<Thing>Repository` implements both interfaces and is registered as a single shared instance against both. See `references/maintain-add-fake.md` "Pair CQRS interfaces".
+- [ ] Tests don't assert on fake call counters (`fake.CallCount`, `fake.QueryCount`, etc.). Assert on the response and the data the fake stored — those are the contract. See `outside-in-testing/references/pitfalls.md` "Asserting on fake call counts".
+- [ ] When production code under test contains a static rule table (`Dictionary<>`, immutable rule list, `switch` on a composite key), tests cover **each distinguishable row** via `[Theory]`/`[Fact]`, not just a happy-path. See `outside-in-testing/references/decision-rules.md` "Production configuration tables are a test-case source".
 
 ## Default library versions
 

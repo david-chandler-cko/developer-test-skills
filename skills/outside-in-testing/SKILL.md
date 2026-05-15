@@ -16,29 +16,19 @@ This is not integration testing (no real external systems), not unit testing (no
 1. **Only the network boundary is mocked.** HTTP, gRPC, queues, DBs, feature-flag services, token issuers, AWS SDKs — these get fakes or interceptors. Anything that would run in-process in production runs for real in the test.
 2. **In-process dependencies are never mocked.** No `Mock<IInternalService>`. If internal wiring breaks, your tests break — that's what you want.
 3. **Every scenario is isolated from every other running in parallel.** *How* you isolate is a design choice (see [decision-rules](references/decision-rules.md) §Isolation strategies) — not a fixed rule.
-4. **Prefer fakes over mocks.** A fake is a dumb in-memory implementation of a real interface (e.g., a `ConcurrentDictionary`-backed store that satisfies `IProcessorRepository`). You assert on its state, not on which methods got called. Mocks that verify call patterns are brittle and leak implementation details; use them only when there's no observable state to check.
+4. **Prefer fakes over mocks.** A fake is a dumb in-memory implementation of a real interface (e.g., a `ConcurrentDictionary`-backed store that satisfies `IOrderRepository`). You assert on its state, not on which methods got called. Mocks that verify call patterns are brittle and leak implementation details; use them only when there's no observable state to check.
 
 ## When project precedent contradicts the methodology
 
-Some existing test projects in the codebase will violate this skill — usually because they predate it, or someone reached for the path of least resistance. **An existing wrong pattern is not licence to repeat it.** Methodology beats precedent: every new contributor reads the codebase as the source of truth and copies it forward, so consistency with a broken shape compounds.
+Some existing test projects will violate this skill — usually because they predate it. **An existing wrong pattern is not licence to repeat it.** Apply the methodology in new code regardless of what neighbours do. If the cleanup is small (e.g., replacing a `Fake*ApiClient` with an HTTP interceptor registration), pull it into the same change. If large, flag the deviation in the PR and track a follow-up ticket — don't silently match the wrong shape.
 
-A common form: a test project ships a `Fake<ExternalService>ApiClient : I<ExternalService>ApiClient` where the real implementation wraps `HttpClient`. The methodology says HTTP is intercepted at the transport (see [decision-rules.md](references/decision-rules.md) row "HTTP"), not faked at the wrapper interface. Don't cite the existing fake as licence to add another one.
+Common drift shapes:
 
-### How to handle drift when you find it
-
-1. **Apply the methodology in the new code, regardless of what neighbours do.** New tests should be correct even when their neighbours aren't.
-2. **If the refactor is small, fix the existing tests in the same change.** Replacing one or two `Fake*ApiClient` files with HTTP interceptor registrations is often a single-digit-file change — pull it into the same PR rather than leaving the wrong shape in place.
-3. **If the refactor is large, flag the deviation and proceed with the methodology in the new code.** "Flag" means: a short comment in the new code or PR description pointing at this skill, plus a follow-up ticket so the deviation is tracked, not buried. Don't silently match the wrong shape just to look consistent — that buries the problem.
-
-### Drift to look out for
-
-- A fake implementing a typed HTTP/gRPC client interface (`Fake*ApiClient : I*ApiClient` whose production implementation owns an `HttpClient` or generated gRPC stub).
+- A fake implementing a typed HTTP/gRPC client interface (`Fake*ApiClient : I*ApiClient` whose real implementation wraps `HttpClient` or a generated gRPC stub).
 - A `Mock<I*Service>` where the interface is an in-process collaborator.
-- A test project that re-implements the SUT's DI composition root rather than reusing it.
+- A test project that re-implements the SUT's DI composition root.
 - A shared singleton fake with no discriminator and no `[Collection]` serialisation.
-- Tests that construct the Lambda handler class directly (`new EntryPoint()`, `new Function()`) rather than driving the production entry point.
-
-These are drift, not the project's "house style".
+- Tests that construct the handler class directly (`new EntryPoint()`, `new Function()`) instead of driving the production entry point.
 
 ## Decision tree: real vs. fake vs. intercept
 
@@ -48,9 +38,9 @@ Is this dependency in-process?
 └── No (crosses network)
     ├── HTTP?     → Intercept with httpclient-interception (or language equivalent)
     ├── gRPC?     → gRPC interceptor
-    ├── AWS SDK?  → Fake the client interface (IAmazonS3, IAmazonSQS, ISnsPublisher, ...)
+    ├── AWS SDK?  → Fake the client interface (IAmazonS3, IAmazonSQS, ...)
     ├── DB client? → Fake the repository interface; OR use Testcontainers for a real DB
-    ├── Feature flags? → Fake the client (FakeLdClient, FakeFeatureManager, ...)
+    ├── Feature flags? → Fake the feature-flag client
     └── Auth/token issuer? → Fake issuer + register a signing key the service trusts
 ```
 
@@ -60,7 +50,8 @@ See [references/decision-rules.md](references/decision-rules.md) for expansion, 
 
 - **Test entrypoints**: HTTP endpoint → response + side effects. Lambda handler → response + side effects. Message consumer → side effects. Generic entrypoint (ports-and-adapters) → command/query → side effects.
 - **Don't test internal classes in isolation.** If they matter, they're reached via an entrypoint. If they're not reached, they're dead code.
-- **Assert on observable state**, not on internal calls. Query the fakes (`_testScope.FakeKafkaPublisher.GetPublishedRecords()`), the response, the HTTP interceptor's recorded requests, emitted logs. Don't assert that method X was invoked.
+- **Assert on observable state**, not on internal calls. Query the fakes (`_testScope.FakeEventPublisher.GetPublishedRecords()`), the response, the HTTP interceptor's recorded requests, emitted logs. Don't assert that method X was invoked.
+- **Don't assert on fake call counts.** `fake.CallCount.Should().Be(1)` couples the test to the handler's implementation (caching, batching, retries are all free to change the count without changing behaviour). Assert on the response or the data the fake stored — those are the contract. See `references/pitfalls.md` "Asserting on fake call counts".
 
 ## Fixture scope: shared vs. per-test
 
@@ -83,29 +74,10 @@ Full treatment in [references/decision-rules.md](references/decision-rules.md).
 
 If the service uses ports-and-adapters (e.g., `ICommandHandler<T>`, `IQueryHandler<T>`), you may drive tests at the port and skip the HTTP/Lambda transport. Valid when the transport is a thin shell. Outbound deps still need fakes; isolation still matters. Details in the .NET skill's `references/ports-and-adapters.md`.
 
-## Pitfalls (summary)
+## References
 
-See [references/pitfalls.md](references/pitfalls.md) for symptoms and fixes. Headlines:
-
-- Fake singleton pollution (shared-singleton strategy without a discriminator)
-- HTTP interceptor subscriptions not disposed → tests bleed into each other
-- Service reads correlation ID from one place, test writes it to another → fakes partition correctly but nothing matches
-- Static state (global clocks, feature flags, singleton caches) survives between tests
-- `TestServer.PreserveExecutionContext` not set → `AsyncLocal<>` isolation breaks silently
-- `ThrowOnMissingRegistration` off → an unmocked external call silently hits the real URL in CI
-- Debugger-attached infinite timeouts leak into CI
-- Health checks / warmup tasks run during the test and poison fakes
-- appsettings.*.json not copied to `bin/` → config looks right in source, wrong at runtime
-- IAsyncLifetime ordering surprises (fixture init → test init → test → test dispose → fixture dispose)
-
-## Vocabulary
-
-Short definitions in [references/glossary.md](references/glossary.md): TestScope, TestContext, fixture, fake, mock, stub, interceptor, correlation ID, entrypoint, port/adapter, in-memory test server.
-
-## Example patterns
-
-See [examples/example-patterns.md](examples/example-patterns.md) for the canonical shapes this methodology collapses to in practice (Lambda, API variants, ports-and-adapters) and when to reach for each.
-
-## Code generation
+- [references/pitfalls.md](references/pitfalls.md) — symptoms and fixes for the common ways outside-in tests go wrong (singleton pollution, undisposed interceptors, discriminator gaps, `PreserveExecutionContext`, warmup tasks, etc.).
+- [references/glossary.md](references/glossary.md) — short definitions: TestScope, fixture, fake, mock, stub, interceptor, discriminator, port/adapter.
+- [examples/example-patterns.md](examples/example-patterns.md) — canonical shapes the methodology collapses to (Lambda, API variants, ports-and-adapters) and when to reach for each.
 
 This skill does not generate code. For .NET, invoke the `dotnet-developer-tests` skill. For other languages, adapt the principles here by hand.
