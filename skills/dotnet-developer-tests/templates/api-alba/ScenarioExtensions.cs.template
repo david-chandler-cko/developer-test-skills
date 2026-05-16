@@ -21,9 +21,9 @@ public static class ScenarioExtensions
 
     // Add domain-specific helpers per endpoint the tests exercise.
     // Example:
-    // public static Scenario SendCreatePayment(this Scenario scenario, CreatePaymentRequest request)
+    // public static Scenario SendCreateOrder(this Scenario scenario, CreateOrderRequest request)
     // {
-    //     scenario.Post.Json(request).ToUrl("/payments");
+    //     scenario.Post.Json(request).ToUrl("/orders");
     //     return scenario;
     // }
 }

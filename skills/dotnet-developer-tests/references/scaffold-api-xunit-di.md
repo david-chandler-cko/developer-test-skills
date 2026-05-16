@@ -67,6 +67,8 @@ Scenarios/
 
 ## Gotchas
 
+- **Inherit production's composition root, don't re-implement it.** In `Startup.ConfigureHost`, call `webHostBuilder.UseStartup<TProductionStartup>()` and then layer test overrides via `ConfigureTestServices(...)`. Tests should *re-register fakes against the same interfaces production registered* (last-registration-wins). A `TestStartup : ProductionStartup` subclass or a hand-rolled DI composition diverges silently the moment production adds a new dependency.
+- **Strip production polling pumps.** If the production host registers `IHostedService`s that poll real queues, real timers, or external endpoints, remove them before the test host boots: `services.RemoveAll<IHostedService>()` if every hosted service is a network poller, or surgical removal by type if not. The test invokes handlers directly via DI; the production pump fighting the test's enqueue is a common cause of hang-then-timeout failures.
 - **Xunit.DI discovery**: `Startup` must be a top-level class with exactly the right method signatures. Typos fail with cryptic "no suitable constructor" errors.
 - **`PreserveExecutionContext = true`**: without this, the `AsyncLocal<>` accessor silently doesn't flow. Every request sees `Current == null`.
 - **Health checks / warmup tasks**: remove them in `ConfigureServices` (see template).

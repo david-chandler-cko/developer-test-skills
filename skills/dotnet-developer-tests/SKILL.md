@@ -24,7 +24,7 @@ find test -name 'TestScope.cs' 2>/dev/null
 
 Use `AskUserQuestion` to collect:
 
-1. **Project type** — Lambda / API / Generic entrypoint (ports-and-adapters).
+1. **Project type** — Lambda / API / Queue-consumer (long-running SQS/Kafka/Service-Bus host) / Generic entrypoint (ports-and-adapters).
 2. **If API, host framework**:
    - **Plain WebApplicationFactory** (recommended default for new services).
    - **Xunit.DependencyInjection** — reach for this when the service has >20 fakes or very complex DI.
@@ -42,9 +42,18 @@ Then follow the variant-specific recipe:
 - API (WAF) → [references/scaffold-api-webapplicationfactory.md](references/scaffold-api-webapplicationfactory.md) + `templates/api-waf/`
 - API (Xunit.DI) → [references/scaffold-api-xunit-di.md](references/scaffold-api-xunit-di.md) + `templates/api-xunit-di/`
 - API (Alba) → [references/scaffold-api-alba.md](references/scaffold-api-alba.md) + `templates/api-alba/`
+- Queue-consumer (SQS/Kafka/Service Bus, hosted in IHost) → [references/scaffold-queue-consumer.md](references/scaffold-queue-consumer.md) (layers on top of Xunit.DI recipe)
 - Ports-and-adapters → [references/ports-and-adapters.md](references/ports-and-adapters.md)
 
 Substitute placeholders (`{{ServiceName}}`, `{{Namespace}}`, `{{EntrypointType}}`, etc.) when copying templates. Templates are starting points, not verbatim requirements — match the project's existing conventions when a canonical file already exists.
+
+**Preflight before copying any template — match the project's existing baseline:**
+
+1. **Target framework** — read `src/*.csproj` `<TargetFramework>` and any `Directory.Build.props` `<TargetFramework>`. Override the template's `net10.0` default if the project ships on an older framework. A test project that doesn't match the production framework can't even reference the production assembly.
+2. **xUnit version** — if the project uses xUnit v2 (look for `xunit` ≥2.4 in any existing test project's `.csproj`, or `IClassFixture<>` / `Xunit.Sdk` v2 idioms), keep v2 — don't introduce a v3 test project alongside a v2 one. The two have incompatible runners and assembly-level attributes.
+3. **Assertion library** — `Directory.Build.props` often pins one (`FluentAssertions`, `AwesomeAssertions`, `Shouldly`). Match it. Two assertion libraries in one solution is a smell and a frequent source of "which `Should()` extension?" confusion.
+4. **Logging sink** — does the project route logs through `ITestOutputHelper` via `MartinCostello.Logging.XUnit` or similar? If so, the TestScope should accept and use the same.
+5. **Sibling test project** — if `test/<OtherService>.Developer.Tests/` already exists in the solution, *read its `Infrastructure/TestScope.cs` and its `.csproj` first*. Other teams in the same solution have already made these choices; the new project should match unless there's a concrete reason not to. Cribbing from a sibling is faster and more consistent than re-deriving from templates.
 
 ## Maintain flow
 
@@ -72,12 +81,18 @@ Run through these when asked to review a project, or when adding to one that loo
 - [ ] No fakes implementing typed HTTP/gRPC client interfaces (e.g., a `FakeBillingApiClient : IBillingApiClient` where the real implementation wraps `HttpClient`). HTTP → intercept; gRPC → intercept at the `CallInvoker`. See `outside-in-testing/references/decision-rules.md` rows "HTTP" and "gRPC".
 - [ ] Tests invoke the same entry point production runs. No `new EntryPoint()` / `new Function()` / `new LambdaEntryPoint()`; no Program.cs body re-implemented in the test project. For Lambda specifically, see `references/scaffold-lambda.md` "Match the production entry point".
 - [ ] Scenario classes are named `When<Situation>` and live under `Scenarios/` (or root for tiny Lambda projects).
-- [ ] Test data uses the builder pattern and/or AutoFixture. Prefer not to hardcode complex objects inline in the test method.
+- [ ] Test data uses the builder pattern and/or AutoFixture. Prefer not to hardcode complex objects inline in the test method. Any non-trivial domain object referenced by ≥2 tests has its own builder (see `references/maintain-add-scenario.md` "Builders: variant factories, derived builders, AutoFixture defaults"). For request shapes with discrete variants, prefer static variant factories (`Builder.Variant1()`) over flag-style setters.
+- [ ] Historical state is seeded via direct fake `Seed(...)` calls, not by round-tripping through a sibling handler — unless the sibling handler's write shape is itself under test. See `references/maintain-add-scenario.md` "Seeding test data: direct fake vs. round-trip".
 - [ ] Do not share constants between tests for correlation IDs, tenant IDs, or any discriminator value — these should be generated per test or per test instance.
 - [ ] Fake-generated ID strings match the format the service uses in production (ULID, GUID, internal identifier package). Inspect `src/` for the existing pattern before inventing one.
 - [ ] CQRS interface pairs share a single fake. When production splits `IQuery<Thing>` / `IStore<Thing>` (or `IRead<Thing>` / `IWrite<Thing>`), one `Fake<Thing>Repository` implements both interfaces and is registered as a single shared instance against both. See `references/maintain-add-fake.md` "Pair CQRS interfaces".
 - [ ] Tests don't assert on fake call counters (`fake.CallCount`, `fake.QueryCount`, etc.). Assert on the response and the data the fake stored — those are the contract. See `outside-in-testing/references/pitfalls.md` "Asserting on fake call counts".
 - [ ] When production code under test contains a static rule table (`Dictionary<>`, immutable rule list, `switch` on a composite key), tests cover **each distinguishable row** via `[Theory]`/`[Fact]`, not just a happy-path. See `outside-in-testing/references/decision-rules.md` "Production configuration tables are a test-case source".
+- [ ] Large AWS SDK interfaces (`IAmazonDynamoDB`, `IAmazonSimpleNotificationService`, etc.) aren't hand-faked end-to-end. Either fake only the methods production calls (rest throw `NotImplementedException`) or wrap the SDK behind a project-specific port in `src/`. See `references/scaffold-lambda.md` "Variant: AWS SDK clients".
+- [ ] AWS SDK clients constructed via a factory/builder interface (`IFooClientBuilder.Build()`) are faked at the factory layer, not by reaching past it. See `references/scaffold-lambda.md` "AWS SDK clients hidden behind a factory or builder".
+- [ ] TestScope's `IConfiguration` is built from production's `appsettings.json` with in-memory overrides for the keys assertions reference. No `appsettings.Tests.json` unless the diverging block is large. See `references/scaffold-lambda.md` "Configuration: how the TestScope wires `IConfiguration`".
+- [ ] The test composition root *inherits* the production composition root (`UseStartup<TProductionStartup>()` + `ConfigureTestServices(...)` for API; production `ServiceRegistry.BuildServiceProvider(config, configureServices)` for Lambda) rather than re-implementing it. Last-registration-wins gives test fakes priority over the production registrations they shadow.
+- [ ] Queue-consumer / long-running hosts have `services.RemoveAll<IHostedService>()` (or surgical poller removal) in the test composition root. Otherwise the production polling pump fights the test's direct handler dispatch. See `references/scaffold-queue-consumer.md`.
 
 ## Default library versions
 

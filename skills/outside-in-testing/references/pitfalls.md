@@ -119,6 +119,23 @@ If the fake already exposes a counter, treat that as a smell to fix when you nex
 
 ---
 
+### Silently-excluded seeded history (the test is green-or-red, but for the wrong reason)
+
+**Symptom.** Volume / cumulative-state tests pass when they should fail (or fail-fast surface an "above limit" path that never engaged the seeded data). Test output logs from the SUT contain lines like "Failed to include", "skipping record (no matching rule)", or "ignored due to discriminator mismatch" — but the test assertion still resolves because the *current* request happens to land in the expected status.
+**Cause.** The seed builder produced a domain object whose discriminating fields don't quite match what the handler-under-test expects to aggregate against. The fake stored it; the handler read it; the handler then filtered it out. No exception, no failing assertion — just a green test that proves nothing.
+**Fix.** Before declaring a scenario done, scan SUT logs from the run for "exclud", "skip", "ignor", "no matching", "filtered" — anywhere the production code announces it dropped the seeded record. If you find one, the builder's defaults don't match the production reader's filter. Modify the test data so that it correctly matches the filter and still exercises the desired test case.
+**Why it's worth a checklist item.** A scenario whose test data is *silently filtered out* is indistinguishable from one whose code is genuinely correct, *except* in the SUT logs. CI doesn't fail. Code review doesn't catch it. Only running the test once and reading the output catches it.
+
+---
+
+### Lambda test server static state under parallel xUnit
+
+**Symptom.** A suite built on `MartinCostello.Testing.AwsLambdaTestServer` (or similar in-process Lambda runtime mocks) passes in isolation but flakes under xUnit's default parallel execution — tests time out, the wrong response is read off the channel, or `LambdaBootstrap` complains it's already running.
+**Cause.** The in-process Lambda test server / `LambdaBootstrap` keeps process-wide state (an environment variable pointing at the test server's URL, plus a singleton bootstrap loop). Two tests trying to set up two test servers in parallel race on that state.
+**Fix.** Identify and fix the root cause of the data race. Do NOT attempt to disable parallel execution as a workaround.
+
+---
+
 ### `AsyncLocal` ≠ DI scope
 **Symptom.** Using `AsyncLocal<T>` for per-test isolation works until you introduce a background worker, hosted service, or `Task.Run`. The AsyncLocal value is empty in the worker.
 **Cause.** AsyncLocal flows down the async tree, but some execution contexts are intentionally cut (e.g., `Task.Run` without a captured execution context).
